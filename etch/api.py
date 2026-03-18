@@ -121,6 +121,7 @@ async def _persist_to_db(entry, content_hash: str, label: Optional[str], owner: 
                     "label": label or "",
                     "owner": owner or "",
                 }),
+                created_at_exact=entry.created_at,
             )
             session.add(record)
     except Exception as exc:
@@ -360,13 +361,17 @@ async def verify_proof(proof_id: int, body: VerifyRequest) -> VerifyResponse:
     chain_integrity_valid = False
     try:
         prev_root = prev_record.mmr_root if prev_record else "0" * 64
-        ts = record.created_at.timestamp() if hasattr(record.created_at, "timestamp") else record.created_at
+        ts = record.created_at_exact if record.created_at_exact is not None else (
+            record.created_at.timestamp() if hasattr(record.created_at, "timestamp") else record.created_at
+        )
         expected_leaf_hash = _sha256(f"{prev_root}:{record.action_type}:{record.payload_hash}:{ts}")
         chain_integrity_valid = expected_leaf_hash == record.leaf_hash
     except Exception as exc:
         logger.warning(f"[Etch] Chain integrity check failed: {exc}")
 
-    ts_float = record.created_at.timestamp() if hasattr(record.created_at, "timestamp") else float(record.created_at)
+    ts_float = record.created_at_exact if record.created_at_exact is not None else (
+        record.created_at.timestamp() if hasattr(record.created_at, "timestamp") else float(record.created_at)
+    )
     receipt = ProofReceipt(
         proof_id=record.leaf_index,
         content_hash=record.content_hash,

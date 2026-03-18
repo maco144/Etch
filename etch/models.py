@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -30,6 +30,7 @@ class ProofRecord(Base):
     owner = Column(String(200), nullable=True)
     proof_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at_exact = Column(Float, nullable=True)  # Original chain timestamp (full precision)
 
     __table_args__ = (
         Index("idx_etch_leaf_index", "leaf_index", unique=True),

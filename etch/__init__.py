@@ -6,10 +6,12 @@ from .chain import (
     InclusionProof,
     verify_inclusion_proof,
 )
+from .sdk import EtchClient
 
 __all__ = [
     "AuditChain",
     "ChainEntry",
+    "EtchClient",
     "InclusionProof",
     "verify_inclusion_proof",
 ]
