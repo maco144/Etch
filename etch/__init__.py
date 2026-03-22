@@ -1,4 +1,4 @@
-"""Etch — Content provenance on a tamper-evident Merkle chain."""
+"""Etch — System of Record provenance on a tamper-evident Merkle chain."""
 
 from .chain import (
     AuditChain,
@@ -16,4 +16,4 @@ __all__ = [
     "verify_inclusion_proof",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
