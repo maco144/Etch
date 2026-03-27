@@ -1,0 +1,40 @@
+services:
+  etch:
+    build: .
+    restart: unless-stopped
+    environment:
+      ETCH_DATABASE_URL: "postgresql+asyncpg://etch:${POSTGRES_PASSWORD:-etchpass}@postgres:5432/etch"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8101:8100"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: etch
+      POSTGRES_USER: etch
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-etchpass}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etch"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./site:/usr/share/nginx/html:ro
+    depends_on:
+      - etch
+
+volumes:
+  pgdata:

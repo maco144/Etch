@@ -117,4 +117,4 @@ assert verify_inclusion_proof(proof)  # offline verification
 
 ## License
 
-[FSL-1.1-Apache-2.0](https://fsl.software). Source-available for non-competing products. Converts to Apache 2.0 two years after each release.
+[Rising Sun License v1.0](LICENSE.md). Free for personal use. Commercial deployments connect to the Nous network.

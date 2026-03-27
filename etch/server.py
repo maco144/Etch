@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .api import router as proof_router
+from .c2pa import c2pa_router
 from .records_api import records_router
 from .db import create_tables
 
@@ -38,6 +39,7 @@ app = FastAPI(
 )
 
 app.include_router(proof_router)
+app.include_router(c2pa_router)
 app.include_router(records_router)
 
 
