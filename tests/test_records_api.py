@@ -5,7 +5,6 @@ Runs against the real ASGI app with in-memory SQLite, using the v2 SDK.
 from __future__ import annotations
 
 import hashlib
-import json
 
 import httpx
 import pytest
@@ -261,8 +260,8 @@ class TestListRecords:
         assert records[0].record_type == "crm.deal"
 
     async def test_list_newest_first(self, client: EtchClient):
-        r1 = await client.records.create(data={"first": True})
-        r2 = await client.records.create(data={"second": True})
+        await client.records.create(data={"first": True})
+        await client.records.create(data={"second": True})
 
         records = await client.records.list()
         assert records[0].chain_position > records[1].chain_position

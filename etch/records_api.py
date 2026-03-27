@@ -340,8 +340,8 @@ async def get_record_proof(record_id: str, auth: AuthContext = Depends(require_a
         payload_hash=record.payload_hash,
         timestamp=ts,
         verification_steps=[
-            f"leaf_hash = SHA256(prev_root + ':' + 'record_commit' + ':' + payload_hash + ':' + timestamp)",
-            f"mmr_root = SHA256(prev_root + ':' + leaf_hash)",
+            "leaf_hash = SHA256(prev_root + ':' + 'record_commit' + ':' + payload_hash + ':' + timestamp)",
+            "mmr_root = SHA256(prev_root + ':' + leaf_hash)",
         ],
     )
 

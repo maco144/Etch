@@ -5,7 +5,6 @@ import hashlib
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
 from fastapi import FastAPI
 

@@ -12,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from fastapi import Header, HTTPException
 from sqlalchemy import select
