@@ -11,7 +11,7 @@ import logging
 import threading
 from typing import Dict, Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from .chain import AuditChain
 from .db import get_session

@@ -30,11 +30,11 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select
 
-from .chain import get_chain, log_event, verify_inclusion_proof, InclusionProof
+from .chain import get_chain, log_event
 from .db import get_session
 from .models import ProofRecord
 
