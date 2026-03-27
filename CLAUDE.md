@@ -44,7 +44,7 @@ ruff check etch/ tests/
 ## Conventions
 
 - Python 3.11+, ruff line-length 120
-- License: FSL-1.1-Apache-2.0
+- License: Rising Sun License v1.0
 
 ---
 

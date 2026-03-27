@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Etch — Content Provenance on a Tamper-Evident Chain</title>
+<meta name="description" content="Register, verify, and prove content existed at a point in time. Sub-millisecond, privacy-preserving, independently verifiable.">
+<style>
+:root {
+  --bg: #0a0a0f;
+  --bg-surface: #12121a;
+  --bg-elevated: #1a1a26;
+  --border: #2a2a3a;
+  --text: #e4e4ef;
+  --text-dim: #8888a0;
+  --text-muted: #55556a;
+  --accent: #7c6aff;
+  --accent-dim: #5a4ad4;
+  --accent-glow: rgba(124, 106, 255, 0.15);
+  --green: #34d399;
+  --red: #f87171;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif;
+  --max-w: 1100px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.container { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
+
+/* ── Nav ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+nav .container {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 56px;
+}
+.nav-logo {
+  font-family: var(--mono); font-size: 1.1rem; font-weight: 700;
+  color: var(--text); letter-spacing: 0.05em;
+}
+.nav-links { display: flex; gap: 28px; }
+.nav-links a { color: var(--text-dim); font-size: 0.875rem; text-decoration: none; }
+.nav-links a:hover { color: var(--text); }
+
+/* ── Hero ── */
+.hero {
+  padding: 160px 0 100px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 800px; height: 500px;
+  background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.02em;
+  max-width: 780px; margin: 0 auto 20px;
+  position: relative;
+}
+.hero p {
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  color: var(--text-dim);
+  max-width: 620px; margin: 0 auto 36px;
+  line-height: 1.7;
+}
+.hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 28px; border-radius: 8px;
+  font-size: 0.95rem; font-weight: 500;
+  text-decoration: none; transition: all 0.2s;
+}
+.btn-primary {
+  background: var(--accent); color: #fff;
+}
+.btn-primary:hover { background: var(--accent-dim); text-decoration: none; }
+.btn-secondary {
+  background: var(--bg-elevated); color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--text-muted); text-decoration: none; }
+
+/* ── Install bar ── */
+.install-bar {
+  margin: 40px auto 0; max-width: 320px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 20px;
+  font-family: var(--mono); font-size: 0.9rem;
+  color: var(--text-dim); text-align: center;
+  position: relative;
+}
+.install-bar span { color: var(--green); }
+
+/* ── Sections ── */
+section { padding: 100px 0; }
+.section-label {
+  font-family: var(--mono); font-size: 0.8rem; font-weight: 600;
+  color: var(--accent); text-transform: uppercase;
+  letter-spacing: 0.1em; margin-bottom: 12px;
+}
+.section-title {
+  font-size: clamp(1.5rem, 3.5vw, 2.25rem);
+  font-weight: 700; letter-spacing: -0.02em;
+  margin-bottom: 16px;
+}
+.section-desc {
+  color: var(--text-dim); font-size: 1.05rem;
+  max-width: 560px; margin-bottom: 48px;
+}
+
+/* ── How it Works (3 steps) ── */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px; }
+.step {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 32px;
+  transition: border-color 0.2s;
+}
+.step:hover { border-color: var(--accent); }
+.step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--accent-glow); border: 1px solid var(--accent);
+  font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+  color: var(--accent); margin-bottom: 16px;
+}
+.step h3 { font-size: 1.15rem; margin-bottom: 8px; }
+.step p { color: var(--text-dim); font-size: 0.95rem; }
+
+/* ── Features grid ── */
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+.feature {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 28px;
+}
+.feature-icon {
+  font-size: 1.5rem; margin-bottom: 12px;
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-elevated); border-radius: 10px;
+  font-family: var(--mono); color: var(--accent);
+}
+.feature h3 { font-size: 1rem; margin-bottom: 6px; }
+.feature p { color: var(--text-dim); font-size: 0.9rem; }
+
+/* ── Comparison table ── */
+.comparison-wrap {
+  overflow-x: auto; border-radius: 12px;
+  border: 1px solid var(--border);
+}
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 0.9rem;
+}
+th {
+  text-align: left; padding: 14px 20px;
+  background: var(--bg-elevated); font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+tr:last-child td { border-bottom: none; }
+td:first-child { color: var(--text-dim); }
+.check { color: var(--green); font-weight: 700; }
+.cross { color: var(--red); font-weight: 700; }
+.varies { color: var(--text-muted); font-style: italic; }
+
+/* ── Code blocks ── */
+.code-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 24px; }
+.code-block {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+}
+.code-header {
+  padding: 10px 16px; background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 0.75rem;
+  color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.code-block pre {
+  padding: 16px; overflow-x: auto;
+  font-family: var(--mono); font-size: 0.85rem;
+  line-height: 1.6; color: var(--text-dim);
+}
+.code-block pre .kw { color: var(--accent); }
+.code-block pre .str { color: var(--green); }
+.code-block pre .cm { color: var(--text-muted); }
+.code-block pre .fn { color: #f0c674; }
+.code-block pre .fl { color: var(--accent); }
+
+/* ── API table ── */
+.api-method {
+  display: inline-block; font-family: var(--mono);
+  font-size: 0.75rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 4px;
+  min-width: 50px; text-align: center;
+}
+.api-method.get { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.api-method.post { background: rgba(124, 106, 255, 0.15); color: var(--accent); }
+td code {
+  font-family: var(--mono); font-size: 0.85rem;
+  background: var(--bg-elevated); padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* ── Use cases ── */
+.use-cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+.use-case {
+  padding: 24px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg-surface);
+  border-radius: 0 8px 8px 0;
+}
+.use-case h3 { font-size: 0.95rem; margin-bottom: 6px; }
+.use-case p { color: var(--text-dim); font-size: 0.88rem; }
+
+/* ── Pricing ── */
+.tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+.tier {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 32px;
+  display: flex; flex-direction: column;
+}
+.tier.featured { border-color: var(--accent); }
+.tier-name {
+  font-family: var(--mono); font-size: 0.8rem; font-weight: 600;
+  color: var(--accent); text-transform: uppercase;
+  letter-spacing: 0.1em; margin-bottom: 8px;
+}
+.tier-price { font-size: 1.75rem; font-weight: 700; margin-bottom: 4px; }
+.tier-desc { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 20px; }
+.tier ul { list-style: none; flex: 1; }
+.tier li {
+  padding: 6px 0; font-size: 0.9rem; color: var(--text-dim);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.tier li::before { content: '~'; color: var(--accent); font-family: var(--mono); }
+
+/* ── Chain visualization ── */
+.chain-vis {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0; margin: 48px auto 0;
+  font-family: var(--mono); font-size: 0.7rem;
+  overflow-x: auto; padding: 16px 0;
+  max-width: 100%;
+}
+.chain-block {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px;
+  text-align: center; min-width: 90px;
+  transition: border-color 0.3s;
+}
+.chain-block.active { border-color: var(--accent); }
+.chain-block .idx { color: var(--text-muted); font-size: 0.65rem; }
+.chain-block .hash { color: var(--green); font-size: 0.75rem; margin-top: 2px; }
+.chain-block .root { color: var(--accent); font-size: 0.65rem; margin-top: 2px; }
+.chain-arrow { color: var(--text-muted); font-size: 1rem; padding: 0 6px; flex-shrink: 0; }
+
+/* ── Footer ── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 48px 0;
+}
+.footer-inner {
+  display: flex; justify-content: space-between;
+  align-items: center; flex-wrap: wrap; gap: 16px;
+}
+.footer-left { color: var(--text-muted); font-size: 0.85rem; }
+.footer-links { display: flex; gap: 24px; }
+.footer-links a { color: var(--text-dim); font-size: 0.85rem; }
+
+/* ── Animations ── */
+.fade-in {
+  opacity: 0; transform: translateY(20px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.fade-in.visible { opacity: 1; transform: translateY(0); }
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .nav-links { gap: 16px; }
+  .nav-links a { font-size: 0.8rem; }
+  section { padding: 64px 0; }
+  .hero { padding: 120px 0 64px; }
+  .code-section { grid-template-columns: 1fr; }
+  .chain-vis { justify-content: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="container">
+    <a href="#" class="nav-logo">etch</a>
+    <div class="nav-links">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="#api">API</a>
+      <a href="#pricing">Pricing</a>
+      <a href="https://github.com/maco144/Etch">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <h1>Content provenance on a tamper-evident chain</h1>
+    <p>Register, verify, and prove content existed at a point in time. Sub-millisecond. Privacy-preserving. Independently verifiable.</p>
+    <div class="hero-buttons">
+      <a href="#quickstart" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/maco144/Etch" class="btn btn-secondary">View on GitHub</a>
+    </div>
+    <div class="install-bar"><span>$</span> pip install etch</div>
+
+    <!-- Chain visualization -->
+    <div class="chain-vis" id="chain-vis">
+      <div class="chain-block">
+        <div class="idx">leaf 0</div>
+        <div class="hash">a3f1...c8d2</div>
+        <div class="root">root 7e02...</div>
+      </div>
+      <div class="chain-arrow">&rarr;</div>
+      <div class="chain-block">
+        <div class="idx">leaf 1</div>
+        <div class="hash">b7d4...91fa</div>
+        <div class="root">root d41c...</div>
+      </div>
+      <div class="chain-arrow">&rarr;</div>
+      <div class="chain-block">
+        <div class="idx">leaf 2</div>
+        <div class="hash">f092...3b7e</div>
+        <div class="root">root 5a8f...</div>
+      </div>
+      <div class="chain-arrow">&rarr;</div>
+      <div class="chain-block active">
+        <div class="idx">leaf 3</div>
+        <div class="hash">c4e8...d5a1</div>
+        <div class="root">root 91b3...</div>
+      </div>
+      <div class="chain-arrow">&rarr;</div>
+      <div class="chain-block" style="border-style: dashed; opacity: 0.5;">
+        <div class="idx">leaf n</div>
+        <div class="hash">...</div>
+        <div class="root">root ...</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="section-label">How It Works</div>
+    <h2 class="section-title">Three steps to provable content</h2>
+    <p class="section-desc">No blockchain. No gas fees. No file modification. Just cryptographic proof.</p>
+    <div class="steps">
+      <div class="step fade-in">
+        <div class="step-num">1</div>
+        <h3>Register</h3>
+        <p>Submit content or its SHA-256 hash. Your content is never stored &mdash; only the hash is recorded on the Merkle chain. You get a cryptographic proof receipt back instantly.</p>
+      </div>
+      <div class="step fade-in">
+        <div class="step-num">2</div>
+        <h3>Verify</h3>
+        <p>Prove content hasn't changed since registration. The chain recomputes the hash and validates integrity mathematically &mdash; if any prior entry was tampered with, verification fails.</p>
+      </div>
+      <div class="step fade-in">
+        <div class="step-num">3</div>
+        <h3>Prove</h3>
+        <p>Inclusion proofs are self-contained and can be verified offline. No server trust required. Anyone with the proof can independently confirm authenticity.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features" style="background: var(--bg-surface);">
+  <div class="container">
+    <div class="section-label">Features</div>
+    <h2 class="section-title">Built for speed, privacy, and trust</h2>
+    <p class="section-desc">Everything you need to establish content provenance. Nothing you don't.</p>
+    <div class="features">
+      <div class="feature fade-in">
+        <div class="feature-icon">&lt;1ms</div>
+        <h3>Sub-millisecond</h3>
+        <p>Registration completes in under a millisecond. No block times, no confirmation delays, no queue.</p>
+      </div>
+      <div class="feature fade-in">
+        <div class="feature-icon">#</div>
+        <h3>Privacy-preserving</h3>
+        <p>Content is never stored or transmitted. Only SHA-256 hashes touch the chain. Pre-hash locally for full privacy.</p>
+      </div>
+      <div class="feature fade-in">
+        <div class="feature-icon">&darr;</div>
+        <h3>Tamper-evident</h3>
+        <p>Each entry commits to all previous entries via Merkle Mountain Range. Alter one record and every subsequent hash breaks.</p>
+      </div>
+      <div class="feature fade-in">
+        <div class="feature-icon">&empty;</div>
+        <h3>Offline verification</h3>
+        <p>Inclusion proofs are cryptographically self-contained. Verify anywhere, anytime, without server access.</p>
+      </div>
+      <div class="feature fade-in">
+        <div class="feature-icon">{}</div>
+        <h3>Simple API</h3>
+        <p>Six endpoints. One HTTP call to register. Python SDK with async support. Integrate in minutes.</p>
+      </div>
+      <div class="feature fade-in">
+        <div class="feature-icon">&gt;_</div>
+        <h3>Open source</h3>
+        <p>Rising Sun License. Free for personal use, education, and research. Commercial terms are simple and transparent.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Comparison -->
+<section id="comparison">
+  <div class="container">
+    <div class="section-label">Comparison</div>
+    <h2 class="section-title">How Etch compares</h2>
+    <p class="section-desc">Purpose-built for content provenance. No compromise.</p>
+    <div class="comparison-wrap fade-in">
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Etch</th>
+            <th>C2PA</th>
+            <th>On-chain attestation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Sub-millisecond registration</td>
+            <td class="check">&#10003;</td>
+            <td class="varies">N/A</td>
+            <td class="cross">&#10007;</td>
+          </tr>
+          <tr>
+            <td>Content never stored</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10007;</td>
+            <td class="varies">Varies</td>
+          </tr>
+          <tr>
+            <td>Offline verification</td>
+            <td class="check">&#10003;</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10007;</td>
+          </tr>
+          <tr>
+            <td>No gas fees</td>
+            <td class="check">&#10003;</td>
+            <td class="varies">N/A</td>
+            <td class="cross">&#10007;</td>
+          </tr>
+          <tr>
+            <td>Tamper-evident chain</td>
+            <td class="check">&#10003;</td>
+            <td class="check">&#10003;</td>
+            <td class="check">&#10003;</td>
+          </tr>
+          <tr>
+            <td>No file modification required</td>
+            <td class="check">&#10003;</td>
+            <td class="cross">&#10007;</td>
+            <td class="check">&#10003;</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section id="quickstart" style="background: var(--bg-surface);">
+  <div class="container">
+    <div class="section-label">Quick Start</div>
+    <h2 class="section-title">Up and running in seconds</h2>
+    <p class="section-desc">Register your first proof with a single HTTP call or the Python SDK.</p>
+    <div class="code-section">
+      <div class="code-block fade-in">
+        <div class="code-header">curl &mdash; register content</div>
+<pre>curl -X POST https://etch.locker/v1/proof \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{"content": "My original article",
+       "label": "Blog: Launch Day"}'</span>
+
+<span class="cm"># Response</span>
+{
+  <span class="str">"proof_id"</span>: 0,
+  <span class="str">"content_hash"</span>: <span class="str">"a3f1..."</span>,
+  <span class="str">"timestamp"</span>: 1710000000.0,
+  <span class="str">"mmr_root"</span>: <span class="str">"7e02..."</span>,
+  <span class="str">"chain_depth"</span>: 1
+}</pre>
+      </div>
+      <div class="code-block fade-in">
+        <div class="code-header">python sdk</div>
+<pre><span class="kw">from</span> etch <span class="kw">import</span> EtchClient
+
+<span class="kw">async with</span> <span class="fn">EtchClient</span>(<span class="str">"https://etch.locker"</span>) <span class="kw">as</span> client:
+    <span class="cm"># Register content</span>
+    receipt = <span class="kw">await</span> client.<span class="fn">register</span>(<span class="str">"My original article"</span>)
+    print(receipt.proof_id)  <span class="cm"># 0</span>
+
+    <span class="cm"># Verify it later</span>
+    result = <span class="kw">await</span> client.<span class="fn">verify</span>(
+        receipt.proof_id,
+        <span class="str">"My original article"</span>
+    )
+    <span class="kw">assert</span> result.verified  <span class="cm"># True</span></pre>
+      </div>
+      <div class="code-block fade-in">
+        <div class="code-header">privacy mode &mdash; hash locally</div>
+<pre><span class="cm"># Content never leaves your machine</span>
+HASH=$(<span class="kw">echo</span> -n <span class="str">"secret document"</span> | sha256sum | cut -d<span class="str">' '</span> -f1)
+
+curl -X POST https://etch.locker/v1/proof \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">"{\"content_hash\": \"$HASH\"}"</span></pre>
+      </div>
+      <div class="code-block fade-in">
+        <div class="code-header">python &mdash; as a library</div>
+<pre><span class="kw">from</span> etch <span class="kw">import</span> AuditChain, verify_inclusion_proof
+
+chain = <span class="fn">AuditChain</span>()
+entry = chain.<span class="fn">append</span>(
+    <span class="str">"content_proof"</span>,
+    {<span class="str">"content_hash"</span>: <span class="str">"a3f1..."</span>}
+)
+
+proof = chain.<span class="fn">generate_proof</span>(entry.leaf_index)
+<span class="kw">assert</span> <span class="fn">verify_inclusion_proof</span>(proof)  <span class="cm"># offline!</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- API Reference -->
+<section id="api">
+  <div class="container">
+    <div class="section-label">API Reference</div>
+    <h2 class="section-title">Full API surface</h2>
+    <p class="section-desc">Clean REST API. JSON in, JSON out. Full OpenAPI docs at <a href="/docs">/docs</a>.</p>
+    <div class="comparison-wrap fade-in">
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">CONTENT PROOFS</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/proof</code></td>
+            <td>Register content and get a proof receipt</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/proof/batch</code></td>
+            <td>Register up to 1,000 items in a single call</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/proof/{id}</code></td>
+            <td>Retrieve a proof receipt by ID</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/proof/hash/{hash}</code></td>
+            <td>Look up a proof by SHA-256 content hash</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/proof/recent</code></td>
+            <td>List recent proofs, newest first</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/proof/stats</code></td>
+            <td>Chain statistics and current MMR root</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/proof/{id}/verify</code></td>
+            <td>Verify content integrity and chain validity</td>
+          </tr>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">C2PA COMPATIBILITY</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/c2pa/manifest</code></td>
+            <td>Register a C2PA manifest on the Etch chain</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/c2pa/manifest/{id}</code></td>
+            <td>Retrieve manifest with inclusion proof</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/c2pa/verify</code></td>
+            <td>Verify manifest integrity against the chain</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/c2pa/bridge</code></td>
+            <td>Bridge an existing Etch proof to C2PA format</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Use Cases -->
+<section id="use-cases" style="background: var(--bg-surface);">
+  <div class="container">
+    <div class="section-label">Use Cases</div>
+    <h2 class="section-title">Who uses content provenance?</h2>
+    <p class="section-desc">Anyone who needs to prove what existed, when.</p>
+    <div class="use-cases">
+      <div class="use-case fade-in">
+        <h3>Journalism</h3>
+        <p>Prove article authenticity and exact publication time. Combat misinformation with cryptographic evidence.</p>
+      </div>
+      <div class="use-case fade-in">
+        <h3>Legal</h3>
+        <p>Timestamp contracts, evidence, and communications. Tamper-evident records that hold up to scrutiny.</p>
+      </div>
+      <div class="use-case fade-in">
+        <h3>AI Training Data</h3>
+        <p>Prove data provenance for EU AI Act compliance. Document training data origins before they're questioned.</p>
+      </div>
+      <div class="use-case fade-in">
+        <h3>Creative Work</h3>
+        <p>Establish creation timestamps for intellectual property. Prove you made it first, without exposing the work.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing">
+  <div class="container">
+    <div class="section-label">Pricing</div>
+    <h2 class="section-title">Simple, transparent terms</h2>
+    <p class="section-desc">Rising Sun License. Use it freely. Build on it commercially.</p>
+    <div class="tiers">
+      <div class="tier fade-in">
+        <div class="tier-name">Personal</div>
+        <div class="tier-price">Free</div>
+        <div class="tier-desc">No strings attached</div>
+        <ul>
+          <li>Use, study, modify, share</li>
+          <li>Personal projects</li>
+          <li>Education and research</li>
+          <li>Full API access</li>
+          <li>Community support</li>
+        </ul>
+      </div>
+      <div class="tier featured fade-in">
+        <div class="tier-name">Builder</div>
+        <div class="tier-price">Revenue share</div>
+        <div class="tier-desc">Connect to the Nous network</div>
+        <ul>
+          <li>Everything in Personal</li>
+          <li>Commercial deployments</li>
+          <li>Small, published percentage</li>
+          <li>You keep the majority</li>
+          <li>Automatic verification and attestation</li>
+        </ul>
+      </div>
+      <div class="tier fade-in">
+        <div class="tier-name">Enterprise</div>
+        <div class="tier-price">Custom</div>
+        <div class="tier-desc">Dedicated support and deployment</div>
+        <ul>
+          <li>Everything in Builder</li>
+          <li>Private deployment options</li>
+          <li>Custom Nous configuration</li>
+          <li>SLA and priority support</li>
+          <li><a href="mailto:alex@risingsun.name">Contact us</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-left">
+        &copy; 2026 Alex Macaluso &middot; Part of the <a href="https://risingsun.name">Rising Sun</a> portfolio
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/maco144/Etch">GitHub</a>
+        <a href="/docs">API Docs</a>
+        <a href="mailto:alex@risingsun.name">Contact</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Fade-in on scroll
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// Subtle chain animation — pulse the active block
+const blocks = document.querySelectorAll('.chain-block:not([style])');
+let activeIdx = 3;
+setInterval(() => {
+  blocks.forEach(b => b.classList.remove('active'));
+  activeIdx = (activeIdx + 1) % blocks.length;
+  blocks[activeIdx].classList.add('active');
+}, 2000);
+</script>
+
+</body>
+</html>

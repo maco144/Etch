@@ -75,6 +75,22 @@ class ProofReceipt(BaseModel):
     chain_depth: int = Field(description="Total leaves in the chain at registration time")
 
 
+class BatchProofRequest(BaseModel):
+    items: list[ProofRequest] = Field(..., min_length=1, max_length=1000)
+
+
+class BatchProofItemResult(BaseModel):
+    """Result for a single item in a batch — either a receipt or an error."""
+    receipt: Optional[ProofReceipt] = None
+    error: Optional[str] = None
+    index: int = Field(description="Position of this item in the request batch")
+
+
+class BatchProofResponse(BaseModel):
+    receipts: list[BatchProofItemResult]
+    count: int = Field(description="Number of successfully registered items")
+
+
 class VerifyRequest(BaseModel):
     content: Optional[str] = Field(
         None,
@@ -291,6 +307,94 @@ async def get_proof_by_hash(content_hash: str) -> ProofReceipt:
         mmr_root=record.mmr_root,
         chain_depth=record.leaf_count,
     )
+
+
+@router.post("/batch", summary="Register multiple content proofs in a single request")
+async def register_batch(body: BatchProofRequest) -> BatchProofResponse:
+    """
+    Register multiple content items on the chain in one request.
+
+    Each item is validated individually. Valid items get a proof receipt;
+    invalid items get an error message. All valid records are persisted
+    in a single DB session.
+    """
+    results: list[BatchProofItemResult] = []
+    entries_to_persist: list[tuple] = []  # (entry, content_hash, label, owner)
+    success_count = 0
+
+    for idx, item in enumerate(body.items):
+        # Validate
+        if not item.content and not item.content_hash:
+            results.append(BatchProofItemResult(
+                index=idx, error="Provide either 'content' or 'content_hash'",
+            ))
+            continue
+
+        if item.content_hash and len(item.content_hash) != 64:
+            results.append(BatchProofItemResult(
+                index=idx, error="content_hash must be a 64-character SHA-256 hex string",
+            ))
+            continue
+
+        content_hash = item.content_hash or _sha256(item.content)
+
+        payload = {
+            "content_hash": content_hash,
+            "label": item.label or "",
+            "owner": item.owner or "",
+            "registered_at": time.time(),
+        }
+
+        entry = log_event(
+            action_type="content_proof",
+            payload=payload,
+            specialist="etch",
+            agent_id=content_hash,
+        )
+
+        receipt = ProofReceipt(
+            proof_id=entry.leaf_index,
+            content_hash=content_hash,
+            label=item.label,
+            owner=item.owner,
+            timestamp=entry.created_at,
+            leaf_hash=entry.leaf_hash,
+            mmr_root=entry.mmr_root,
+            chain_depth=entry.leaf_index + 1,
+        )
+        results.append(BatchProofItemResult(index=idx, receipt=receipt))
+        entries_to_persist.append((entry, content_hash, item.label, item.owner))
+        success_count += 1
+
+    # Persist all valid records in a single DB session
+    if entries_to_persist:
+        try:
+            async with get_session() as session:
+                for entry, content_hash, label, owner in entries_to_persist:
+                    record = ProofRecord(
+                        leaf_index=entry.leaf_index,
+                        leaf_hash=entry.leaf_hash,
+                        mmr_root=entry.mmr_root,
+                        leaf_count=entry.leaf_index + 1,
+                        payload_hash=entry.payload_hash,
+                        action_type="content_proof",
+                        content_hash=content_hash,
+                        label=label,
+                        owner=owner,
+                        proof_json=json.dumps({
+                            "content_hash": content_hash,
+                            "label": label or "",
+                            "owner": owner or "",
+                        }),
+                        created_at_exact=entry.created_at,
+                    )
+                    session.add(record)
+        except Exception as exc:
+            logger.warning(f"[Etch] Batch DB persist failed: {exc}")
+
+    logger.info(f"[Etch] Batch registered {success_count}/{len(body.items)} proofs")
+
+    return BatchProofResponse(receipts=results, count=success_count)
 
 
 @router.get("/{proof_id}", summary="Retrieve a proof receipt by proof_id")
