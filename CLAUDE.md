@@ -24,9 +24,14 @@ ruff check etch/ tests/
 ## Architecture
 
 - **chain.py** — Core: MMR hash chain (`AuditChain`), inclusion proofs, offline verification
-- **api.py** — FastAPI router at `/v1/proof/*` (register, verify, lookup, stats)
-- **models.py** — SQLAlchemy `ProofRecord` table
+- **chain_manager.py** — Namespace-isolated chain manager (per-tenant chains for SoR API)
+- **api.py** — FastAPI router at `/v1/proof/*` (legacy: register, verify, lookup, batch, stats)
+- **records_api.py** — FastAPI router at `/v1/records/*` (SoR API, namespace-isolated, API key auth)
+- **c2pa.py** — FastAPI router at `/v1/c2pa/*` (C2PA manifest bridge for EU AI Act compliance)
+- **auth.py** — API key authentication (`etch_{mode}_sk_{token}`), namespace bootstrap
+- **models.py** — SQLAlchemy ORM: `ProofRecord`, `Namespace`, `ApiKey`, `RecordEntry` (4 tables)
 - **db.py** — Async DB sessions (SQLite default, PostgreSQL via `ETCH_DATABASE_URL`)
+- **sdk.py** — Async Python SDK (`EtchClient`) with legacy + v2 API support
 - **server.py** — FastAPI app with lifespan (auto-creates tables on startup)
 
 ## Key Patterns
