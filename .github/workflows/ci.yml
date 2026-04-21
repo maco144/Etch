@@ -28,3 +28,37 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  assent-frontend:
+    # Catches TypeScript regressions + broken build configs for the
+    # Etch Assent SPA before they hit main. Runs independently of the
+    # Python matrix so a TS issue doesn't block Python CI and vice versa.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: assent-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: assent-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check + build
+        # `npm run build` already runs `tsc --noEmit && vite build`
+        # per assent-app/package.json.
+        run: npm run build
+
+      - name: Upload built bundle (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: assent-bundle
+          path: site/assent/
+          retention-days: 14
