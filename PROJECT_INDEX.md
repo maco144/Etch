@@ -16,15 +16,21 @@ etch/
 │   ├── api.py               # FastAPI router: /v1/proof/* (legacy, simple registration)
 │   ├── records_api.py       # FastAPI router: /v1/records/* (SoR API, namespace-isolated)
 │   ├── c2pa.py              # FastAPI router: /v1/c2pa/* (C2PA manifest bridge)
+│   ├── assent_api.py        # FastAPI router: /v1/assent/* (anonymous PDF-signer events)
 │   ├── sdk.py               # Async Python SDK (EtchClient)
 │   └── server.py            # FastAPI app entrypoint, lifespan, /health
+├── assent-app/              # React+Vite frontend for Etch Assent (builds → site/assent/)
+│   ├── src/routes/          # Home, Sign, Verify
+│   ├── src/components/      # PdfViewer, SignatureField, SignaturePad, VerifyChain
+│   └── src/lib/             # hash, etch client, pdf (pdf-lib + PDF.js), signatures, handoff
 ├── tests/
 │   ├── test_chain.py        # Unit tests: AuditChain, InclusionProof, verify
 │   ├── test_api.py          # Legacy API tests (httpx + ASGI, mocked DB)
 │   ├── test_sdk.py          # SDK client tests
 │   ├── test_batch_api.py    # Batch registration tests
 │   ├── test_c2pa.py         # C2PA compatibility tests
-│   └── test_records_api.py  # SoR API tests
+│   ├── test_records_api.py  # SoR API tests
+│   └── test_assent_api.py   # Etch Assent public API tests
 ├── docs/
 │   ├── eu-ai-act-prospects.md   # EU AI Act Article 50 compliance research
 │   ├── prospect-pipeline.md     # Business integration prospects
@@ -69,6 +75,14 @@ etch/
 - `GET /v1/records/{record_id}/proof` — Self-contained inclusion proof
 - `POST /v1/records/verify` — Verify record against chain
 - `GET /v1/chain/root` — Current chain state
+
+### /v1/assent/* (Etch Assent — anonymous, rate-limited)
+- `POST /v1/assent/stamp` — Commit an `assent.event` (created/field_added/signed/finalized)
+- `GET /v1/assent/chain/{document_id}` — Fetch the event chain with integrity check
+- `GET /v1/assent/records/{record_id}` — Fetch a single receipt
+- `GET /v1/assent/records/{record_id}/proof` — Self-contained inclusion proof (public)
+- `GET /v1/assent/verify?hash={sha256}` — Find events by document hash (recipient-side)
+- Writes pinned to namespace `assent/public`. IP-limited to 20 events/hour; 429 includes `Retry-After`.
 
 ### /v1/c2pa/* (C2PA bridge — no auth)
 - `POST /v1/c2pa/manifest` — Register C2PA manifest on chain

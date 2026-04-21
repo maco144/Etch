@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .api import router as proof_router
+from .assent_api import assent_router, ensure_assent_namespace
 from .c2pa import c2pa_router
 from .records_api import records_router
 from .db import create_tables
@@ -25,9 +26,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create tables on startup (dev convenience)."""
+    """Create tables + bootstrap public namespaces on startup (dev convenience)."""
     await create_tables()
-    logger.info("[Etch] Server ready — chain initialized (v1/proof + v1/records)")
+    await ensure_assent_namespace()
+    logger.info("[Etch] Server ready — chain initialized (v1/proof + v1/records + v1/assent)")
     yield
 
 
@@ -41,6 +43,7 @@ app = FastAPI(
 app.include_router(proof_router)
 app.include_router(c2pa_router)
 app.include_router(records_router)
+app.include_router(assent_router)
 
 
 @app.get("/health")

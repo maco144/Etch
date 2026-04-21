@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans antialiased;
+    background-image:
+      radial-gradient(
+        ellipse 800px 500px at 50% -200px,
+        rgba(124, 106, 255, 0.15) 0%,
+        transparent 60%
+      );
+  }
+
+  a {
+    @apply text-accent;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-colors;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-dim;
+  }
+
+  .btn-secondary {
+    @apply btn bg-transparent text-text border border-border hover:bg-surface;
+  }
+
+  .card {
+    @apply bg-surface border border-border rounded-xl;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .chip-success {
+    @apply chip bg-success/15 text-success;
+  }
+
+  .chip-danger {
+    @apply chip bg-danger/15 text-danger;
+  }
+
+  .chip-muted {
+    @apply chip bg-elevated text-text-dim;
+  }
+
+  .hash {
+    @apply font-mono text-xs text-text-dim break-all;
+  }
+}
+
+/* PDF.js viewer canvas sizing */
+.pdf-page {
+  display: block;
+  margin: 0 auto 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4);
+}

@@ -1,0 +1,77 @@
+# Etch + Assent — Caddy routing (add to the existing etch.locker site block)
+#
+# Assumes:
+#   - the Etch FastAPI service is reachable as "etch:8100" (docker-compose network)
+#     or "127.0.0.1:8100" on a bare host. Adjust the reverse_proxy line to match.
+#   - the built frontend lives at /opt/etch/site (same path the existing static
+#     landing page is served from)
+#
+# Drop the handle_path/handle blocks inside the existing site configuration.
+
+etch.locker {
+    encode zstd gzip
+
+    header {
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "publickey-credentials-get=(self), publickey-credentials-create=(self)"
+    }
+
+    # --- API ---
+    handle /v1/* {
+        reverse_proxy etch:8100
+    }
+    handle /health {
+        reverse_proxy etch:8100
+    }
+    handle /docs {
+        reverse_proxy etch:8100
+    }
+    handle /openapi.json {
+        reverse_proxy etch:8100
+    }
+
+    # --- Etch Assent SPA served from /assent/* and /verify/* ---
+    handle /assent/* {
+        root * /opt/etch/site
+        try_files {path} /assent/index.html
+        file_server
+    }
+
+    handle /verify/* {
+        root * /opt/etch/site
+        try_files {path} /assent/index.html
+        file_server
+    }
+
+    # --- Existing marketing landing ---
+    handle {
+        root * /opt/etch/site
+        try_files {path} /index.html
+        file_server
+    }
+}
+
+# Consumer domain — same bundle, served at root. assent.to reads as a full
+# English phrase (e.g. "assent.to/sign"), so we drop the /assent/ prefix here
+# and serve the SPA from /.
+assent.to {
+    encode zstd gzip
+
+    header {
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "publickey-credentials-get=(self), publickey-credentials-create=(self)"
+    }
+
+    handle /v1/* {
+        reverse_proxy etch:8100
+    }
+
+    # SPA routes (verify + sign + home) all resolve to the same entrypoint.
+    handle {
+        root * /opt/etch/site/assent
+        try_files {path} /index.html
+        file_server
+    }
+}
