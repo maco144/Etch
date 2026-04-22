@@ -118,20 +118,26 @@ export default function Sign() {
       if (!target) return;
       setActivePage(page);
 
-      const centerXPt = xPct * target.widthPt;
-      const centerYPt = yPct * target.heightPt;
+      // Click point is the LEFT edge of the field — the field grows to the
+      // right from where you clicked (vertically centered on your cursor).
+      // This keeps placement predictable; centering-on-click made fields feel
+      // like they "expanded" away from the clicked point.
+      const clickXPt = xPct * target.widthPt;
+      const clickYPt = yPct * target.heightPt;
+
+      const place = (w: number, h: number) => ({
+        x: Math.max(0, Math.min(target.widthPt - w, clickXPt)),
+        y: Math.max(0, Math.min(target.heightPt - h, clickYPt - h / 2)),
+        width: w,
+        height: h,
+      });
 
       if (placementMode === "text") {
-        const w = TEXT_FIELD_WIDTH_PT;
-        const h = TEXT_FIELD_HEIGHT_PT;
         const id = crypto.randomUUID();
         const next: TextFieldValue = {
           id,
           page,
-          x: Math.max(0, Math.min(target.widthPt - w, centerXPt - w / 2)),
-          y: Math.max(0, Math.min(target.heightPt - h, centerYPt - h / 2)),
-          width: w,
-          height: h,
+          ...place(TEXT_FIELD_WIDTH_PT, TEXT_FIELD_HEIGHT_PT),
           fontSize: TEXT_FIELD_FONT_PT,
           value: "",
         };
@@ -141,14 +147,9 @@ export default function Sign() {
       }
 
       // signature placement (default)
-      const w = 200;
-      const h = 60;
       const next: FieldLocation = {
         page,
-        x: Math.max(0, Math.min(target.widthPt - w, centerXPt - w / 2)),
-        y: Math.max(0, Math.min(target.heightPt - h, centerYPt - h / 2)),
-        width: w,
-        height: h,
+        ...place(200, 60),
       };
       setField(next);
       void emitFieldAdded(next);
@@ -377,8 +378,12 @@ export default function Sign() {
           onDocumentReady={({ pages }) => setPagesByNumber(pages)}
           onPageClick={stage.step === "placing" ? handlePlace : undefined}
         >
-          {textOverlaysForActive}
+          {/* Signature placeholder first so it sits UNDER any text fields in
+             the UI — you can always still see a filled-in text value even if
+             a signature box overlaps it. Flatten renders them in the same
+             under/over order in the final PDF. */}
           {fieldOverlayForActive}
+          {textOverlaysForActive}
         </PdfViewer>
       </div>
 
