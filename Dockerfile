@@ -9,6 +9,10 @@ RUN pip install --no-cache-dir ".[postgres]"
 
 COPY site/ site/
 
+# Pre-create the assent document store with correct ownership. Docker will
+# adopt this as the initial state of the named volume on first boot.
+RUN mkdir -p /data/assent-documents && chown -R etch:etch /data
+
 USER etch
 EXPOSE 8100
 

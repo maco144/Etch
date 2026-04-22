@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { stagePending } from "../lib/handoff";
 import { pathFor } from "../lib/routing";
 
@@ -91,6 +91,13 @@ export default function Home() {
       {error && (
         <div className="mt-4 text-sm text-danger text-center">{error}</div>
       )}
+
+      <div className="mt-6 text-center text-sm text-text-dim">
+        Need someone else to sign?{" "}
+        <Link to={pathFor("send")} className="text-accent hover:underline">
+          Send an encrypted link →
+        </Link>
+      </div>
 
       <section className="mt-20 grid sm:grid-cols-3 gap-6">
         <Feature

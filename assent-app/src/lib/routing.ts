@@ -11,7 +11,7 @@ export function basePrefix(): string {
   return window.location.pathname.startsWith("/assent") ? "/assent" : "";
 }
 
-export function pathFor(route: "home" | "sign"): string {
+export function pathFor(route: "home" | "sign" | "send"): string {
   const b = basePrefix();
   if (route === "home") return b || "/";
   return `${b}/${route}`;

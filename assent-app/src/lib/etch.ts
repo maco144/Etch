@@ -165,6 +165,56 @@ export async function verifyByHash(
   return asJson<AssentVerifyResponse>(res);
 }
 
+// ---------------------------------------------------------------------------
+// Encrypted document storage (send-to-sign, V2)
+// ---------------------------------------------------------------------------
+
+export interface UploadDocumentResponse {
+  object: "assent.document";
+  document_id: string;
+  size: number;
+}
+
+export async function uploadDocument(ciphertext: BodyInit): Promise<UploadDocumentResponse> {
+  const res = await fetch(`${apiBase()}/v1/assent/document`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: ciphertext,
+  });
+  return asJson<UploadDocumentResponse>(res);
+}
+
+export async function downloadDocument(documentId: string): Promise<Uint8Array> {
+  const res = await fetch(
+    `${apiBase()}/v1/assent/document/${encodeURIComponent(documentId)}`,
+  );
+  if (!res.ok) {
+    throw new EtchApiError(
+      res.status === 404 ? "document not found" : `download failed (${res.status})`,
+      res.status,
+    );
+  }
+  const buf = await res.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+export async function replaceDocument(
+  documentId: string,
+  ciphertext: BodyInit,
+): Promise<void> {
+  const res = await fetch(
+    `${apiBase()}/v1/assent/document/${encodeURIComponent(documentId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: ciphertext,
+    },
+  );
+  if (!res.ok) {
+    throw new EtchApiError(`replace failed (${res.status})`, res.status);
+  }
+}
+
 // Resolve a URL token that might be either a record_id (rec_...) or a
 // document_id (doc_...). Returns the canonical chain response either way.
 export async function resolveVerify(

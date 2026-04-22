@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import PdfViewer from "../components/PdfViewer";
 import SignatureField from "../components/SignatureField";
 import SignaturePad from "../components/SignaturePad";
 import TextFieldOverlay from "../components/TextFieldOverlay";
 import {
+  downloadDocument,
   EtchApiError,
+  replaceDocument,
   stampEvent,
   type AssentEventPayload,
   type AssentReceipt,
   type FieldLocation,
 } from "../lib/etch";
+import {
+  decrypt,
+  encrypt,
+  importKey,
+  readKeyFromFragment,
+} from "../lib/crypto";
 import { takePending } from "../lib/handoff";
 import { newDocumentId, sha256, toArrayBuffer } from "../lib/hash";
 import { pathFor } from "../lib/routing";
@@ -33,11 +41,19 @@ export default function Sign() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const pendingToken = params.get("p");
+  const urlParams = useParams<{ documentId?: string }>();
+  const recipientDocumentId = urlParams.documentId ?? null;
+  // Recipient mode is any load that carries both a URL :documentId and a
+  // #key= fragment. We decrypt client-side, sign, then re-encrypt back.
+  const isRecipient = Boolean(recipientDocumentId && readKeyFromFragment());
 
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [filename, setFilename] = useState<string>("document.pdf");
+  const recipientKeyRef = useRef<CryptoKey | null>(null);
 
-  const [documentId] = useState(() => newDocumentId());
+  const [documentId] = useState(() =>
+    recipientDocumentId ?? newDocumentId(),
+  );
   const originalHashRef = useRef<string | null>(null);
   const lastHashRef = useRef<string | null>(null);
   const eventIndexRef = useRef(0);
@@ -61,21 +77,61 @@ export default function Sign() {
   const [finalReceipt, setFinalReceipt] = useState<AssentReceipt | null>(null);
   const [finalPdfUrl, setFinalPdfUrl] = useState<string | null>(null);
 
-  // --- 1. Load the PDF handed off from Home.tsx --------------------------
+  // --- 1. Load the PDF -- two sources --------------------------------------
+  //   a) self-sign: handoff from Home via sessionStorage token (?p=...)
+  //   b) recipient: URL :documentId + #key= fragment → fetch + decrypt
 
   useEffect(() => {
-    if (!pendingToken) {
-      navigate(pathFor("home"));
-      return;
-    }
-    const pending = takePending(pendingToken);
-    if (!pending) {
-      navigate(pathFor("home"));
-      return;
-    }
-    setBytes(pending.bytes);
-    setFilename(pending.filename);
-  }, [pendingToken, navigate]);
+    let cancelled = false;
+
+    (async () => {
+      if (isRecipient && recipientDocumentId) {
+        const exported = readKeyFromFragment();
+        if (!exported) {
+          navigate(pathFor("home"));
+          return;
+        }
+        try {
+          const [ciphertext, cryptoKey] = await Promise.all([
+            downloadDocument(recipientDocumentId),
+            importKey(exported),
+          ]);
+          if (cancelled) return;
+          const plaintext = await decrypt(ciphertext, cryptoKey);
+          if (cancelled) return;
+          recipientKeyRef.current = cryptoKey;
+          setBytes(plaintext);
+          setFilename(`received-${recipientDocumentId.slice(0, 8)}.pdf`);
+        } catch (err) {
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(
+            `Couldn't open the shared document: ${msg}. ` +
+              "The link may be broken, expired, or the #key fragment may be missing.",
+          );
+        }
+        return;
+      }
+
+      if (!pendingToken) {
+        navigate(pathFor("home"));
+        return;
+      }
+      const pending = takePending(pendingToken);
+      if (!pending) {
+        navigate(pathFor("home"));
+        return;
+      }
+      if (!cancelled) {
+        setBytes(pending.bytes);
+        setFilename(pending.filename);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingToken, navigate, isRecipient, recipientDocumentId]);
 
   // --- 2. Emit the `created` event as soon as we have the bytes -----------
 
@@ -279,6 +335,23 @@ export default function Sign() {
       );
       eventIndexRef.current += 1;
       lastHashRef.current = finalizedHash;
+
+      // Recipient flow: re-encrypt the flattened PDF with the same key the
+      // sender generated and PUT it back at the same doc_id. The sender's
+      // link still decrypts with their copy of the key.
+      if (isRecipient && recipientKeyRef.current && recipientDocumentId) {
+        setBusyMsg("Returning signed copy…");
+        try {
+          const reEncrypted = await encrypt(flattened, recipientKeyRef.current);
+          await replaceDocument(recipientDocumentId, toArrayBuffer(reEncrypted));
+        } catch (err) {
+          // Don't block the user — local download still works; we just warn.
+          const msg = err instanceof Error ? err.message : String(err);
+          setError(
+            `Signed locally, but couldn't return the encrypted copy to the sender: ${msg}.`,
+          );
+        }
+      }
 
       const blob = new Blob([toArrayBuffer(flattened)], { type: "application/pdf" });
       setFinalPdfUrl(URL.createObjectURL(blob));

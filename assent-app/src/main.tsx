@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import App from "./App";
 import Home from "./routes/Home";
+import Send from "./routes/Send";
 import Verify from "./routes/Verify";
 import "./styles/index.css";
 
@@ -34,10 +35,12 @@ createRoot(root).render(
         <Route element={<App />}>
           {/* etch.locker paths */}
           <Route path="/assent" element={<Home />} />
+          <Route path="/assent/send" element={<Send />} />
           <Route path="/assent/sign" element={<SignRoute />} />
           <Route path="/assent/sign/:documentId" element={<SignRoute />} />
           {/* assent.to paths */}
           <Route path="/" element={<Home />} />
+          <Route path="/send" element={<Send />} />
           <Route path="/sign" element={<SignRoute />} />
           <Route path="/sign/:documentId" element={<SignRoute />} />
           {/* Shared */}

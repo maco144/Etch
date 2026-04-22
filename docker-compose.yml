@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     environment:
       ETCH_DATABASE_URL: "postgresql+asyncpg://etch:${POSTGRES_PASSWORD:-etchpass}@postgres:5432/etch"
+      ETCH_ASSENT_DOC_DIR: /data/assent-documents
+    volumes:
+      - assentdocs:/data/assent-documents
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,3 +41,4 @@ services:
 
 volumes:
   pgdata:
+  assentdocs:
