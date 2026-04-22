@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import PdfViewer from "../components/PdfViewer";
 import SignatureField from "../components/SignatureField";
 import SignaturePad from "../components/SignaturePad";
+import TextFieldOverlay from "../components/TextFieldOverlay";
 import {
   EtchApiError,
   stampEvent,
@@ -14,13 +15,19 @@ import { takePending } from "../lib/handoff";
 import { newDocumentId, sha256, toArrayBuffer } from "../lib/hash";
 import { pathFor } from "../lib/routing";
 import { downloadBytes, downloadJson, flattenSignedPdf } from "../lib/pdf";
-import type { RenderedPage } from "../lib/pdf";
+import type { RenderedPage, TextFieldValue } from "../lib/pdf";
 import { signWithPasskey, type CapturedSignature } from "../lib/signatures";
+
+type PlacementMode = "signature" | "text";
 
 interface Stage {
   step: "placing" | "signing" | "stamping" | "finalized";
   signer: { email: string; name: string };
 }
+
+const TEXT_FIELD_WIDTH_PT = 180;
+const TEXT_FIELD_HEIGHT_PT = 22;
+const TEXT_FIELD_FONT_PT = 12;
 
 export default function Sign() {
   const navigate = useNavigate();
@@ -39,6 +46,9 @@ export default function Sign() {
   const [activePage, setActivePage] = useState(1);
   const [pagesByNumber, setPagesByNumber] = useState<Map<number, RenderedPage>>(new Map());
   const [field, setField] = useState<FieldLocation | null>(null);
+  const [textFields, setTextFields] = useState<TextFieldValue[]>([]);
+  const [placementMode, setPlacementMode] = useState<PlacementMode>("signature");
+  const [autoFocusTextId, setAutoFocusTextId] = useState<string | null>(null);
 
   const [stage, setStage] = useState<Stage>({
     step: "placing",
@@ -107,23 +117,52 @@ export default function Sign() {
       const target = pagesByNumber.get(page);
       if (!target) return;
       setActivePage(page);
-      const fieldWidthPt = 200;
-      const fieldHeightPt = 60;
+
       const centerXPt = xPct * target.widthPt;
       const centerYPt = yPct * target.heightPt;
+
+      if (placementMode === "text") {
+        const w = TEXT_FIELD_WIDTH_PT;
+        const h = TEXT_FIELD_HEIGHT_PT;
+        const id = crypto.randomUUID();
+        const next: TextFieldValue = {
+          id,
+          page,
+          x: Math.max(0, Math.min(target.widthPt - w, centerXPt - w / 2)),
+          y: Math.max(0, Math.min(target.heightPt - h, centerYPt - h / 2)),
+          width: w,
+          height: h,
+          fontSize: TEXT_FIELD_FONT_PT,
+          value: "",
+        };
+        setTextFields((prev) => [...prev, next]);
+        setAutoFocusTextId(id);
+        return;
+      }
+
+      // signature placement (default)
+      const w = 200;
+      const h = 60;
       const next: FieldLocation = {
         page,
-        x: Math.max(0, Math.min(target.widthPt - fieldWidthPt, centerXPt - fieldWidthPt / 2)),
-        y: Math.max(0, Math.min(target.heightPt - fieldHeightPt, centerYPt - fieldHeightPt / 2)),
-        width: fieldWidthPt,
-        height: fieldHeightPt,
+        x: Math.max(0, Math.min(target.widthPt - w, centerXPt - w / 2)),
+        y: Math.max(0, Math.min(target.heightPt - h, centerYPt - h / 2)),
+        width: w,
+        height: h,
       };
       setField(next);
       void emitFieldAdded(next);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pagesByNumber],
+    [pagesByNumber, placementMode],
   );
+
+  const updateTextField = useCallback((next: TextFieldValue) => {
+    setTextFields((prev) => prev.map((tf) => (tf.id === next.id ? next : tf)));
+  }, []);
+  const removeTextField = useCallback((id: string) => {
+    setTextFields((prev) => prev.filter((tf) => tf.id !== id));
+  }, []);
 
   const emitFieldAdded = async (loc: FieldLocation) => {
     if (!lastHashRef.current) return;
@@ -220,6 +259,7 @@ export default function Sign() {
         originalBytes: bytes,
         signaturePng: sig.pngDataUrl,
         location: field,
+        textFields,
         receiptId: signedReceipt.id,
         documentId,
         verifyUrl: `${window.location.origin}/verify/${signedReceipt.id}`,
@@ -289,6 +329,30 @@ export default function Sign() {
     );
   }, [field, currentPage, activePage, capturedSig, stage.step]);
 
+  const textOverlaysForActive = useMemo(() => {
+    if (!currentPage) return null;
+    const onPage = textFields.filter((tf) => tf.page === activePage);
+    if (!onPage.length) return null;
+    return (
+      <>
+        {onPage.map((tf) => (
+          <TextFieldOverlay
+            key={tf.id}
+            field={tf}
+            pageWidthPx={currentPage.widthPx}
+            pageHeightPx={currentPage.heightPx}
+            pageWidthPt={currentPage.widthPt}
+            pageHeightPt={currentPage.heightPt}
+            editable={stage.step === "placing"}
+            autoFocus={tf.id === autoFocusTextId}
+            onChange={updateTextField}
+            onRemove={removeTextField}
+          />
+        ))}
+      </>
+    );
+  }, [textFields, currentPage, activePage, stage.step, autoFocusTextId, updateTextField, removeTextField]);
+
   // --- Render ------------------------------------------------------------
 
   if (!bytes) {
@@ -313,6 +377,7 @@ export default function Sign() {
           onDocumentReady={({ pages }) => setPagesByNumber(pages)}
           onPageClick={stage.step === "placing" ? handlePlace : undefined}
         >
+          {textOverlaysForActive}
           {fieldOverlayForActive}
         </PdfViewer>
       </div>
@@ -354,6 +419,47 @@ export default function Sign() {
             </div>
             <hr className="border-border" />
             <div>
+              <div className="text-sm font-medium mb-2">Place fields</div>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setPlacementMode("signature")}
+                  className={`btn-secondary justify-center text-xs ${
+                    placementMode === "signature"
+                      ? "ring-1 ring-accent bg-accent/10"
+                      : ""
+                  }`}
+                >
+                  Signature
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlacementMode("text")}
+                  className={`btn-secondary justify-center text-xs ${
+                    placementMode === "text"
+                      ? "ring-1 ring-accent bg-accent/10"
+                      : ""
+                  }`}
+                >
+                  + Text field
+                </button>
+              </div>
+              <p className="text-xs text-text-muted">
+                {placementMode === "signature"
+                  ? field
+                    ? "Signature placed. Click the page to move it."
+                    : "Click on the document where you want to sign."
+                  : "Click where you want a text field (printed name, date, etc.). Add as many as you need."}
+              </p>
+              {textFields.length > 0 && (
+                <p className="text-xs text-text-muted mt-1">
+                  {textFields.length} text field
+                  {textFields.length === 1 ? "" : "s"} on this document.
+                </p>
+              )}
+            </div>
+            <hr className="border-border" />
+            <div>
               <div className="text-sm font-medium mb-2">Sign</div>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -375,7 +481,7 @@ export default function Sign() {
               </div>
               {!field && (
                 <p className="text-xs text-text-muted mt-2">
-                  Click anywhere on the document to place a signature field.
+                  Place a signature field above first, then choose Draw or Passkey.
                 </p>
               )}
             </div>

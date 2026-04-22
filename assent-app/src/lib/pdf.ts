@@ -60,10 +60,17 @@ export async function renderPage(
   };
 }
 
+export interface TextFieldValue extends FieldLocation {
+  id: string;
+  value: string;
+  fontSize: number;
+}
+
 export interface FlattenArgs {
   originalBytes: Uint8Array;
   signaturePng: string; // data URL
   location: FieldLocation; // in PDF points
+  textFields: TextFieldValue[];
   receiptId: string;
   documentId: string;
   verifyUrl: string;
@@ -83,6 +90,27 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
     throw new Error(`signature page ${args.location.page} out of range`);
   }
 
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  // Text fields first, so the signature visually sits on top if they overlap.
+  // Empty-value fields are skipped — a user who placed a field and typed
+  // nothing clearly didn't want it baked in.
+  for (const tf of args.textFields) {
+    if (!tf.value.trim()) continue;
+    if (tf.page < 1 || tf.page > pages.length) continue;
+    const page = pages[tf.page - 1];
+    const { height: pageHeightPt } = page.getSize();
+    // Baseline sits slightly above the bottom of the field box.
+    const baselineY = pageHeightPt - tf.y - tf.height + (tf.height - tf.fontSize) / 2;
+    page.drawText(tf.value, {
+      x: tf.x + 2,
+      y: baselineY,
+      size: tf.fontSize,
+      font,
+      color: rgb(0.05, 0.05, 0.1),
+    });
+  }
+
   const sigPng = await pdfDoc.embedPng(args.signaturePng);
   const targetPage = pages[args.location.page - 1];
   const { height: pageHeight } = targetPage.getSize();
@@ -99,7 +127,6 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
 
   // Audit watermark on the last page.
   const lastPage = pages[pages.length - 1];
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const { width: lpW } = lastPage.getSize();
   const footerY = 36;
 
