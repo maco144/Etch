@@ -1,6 +1,6 @@
 # Project Index: Etch
 
-Generated: 2026-03-27
+Generated: 2026-04-24
 
 ## Project Structure
 
@@ -17,43 +17,49 @@ etch/
 │   ├── records_api.py       # FastAPI router: /v1/records/* (SoR API, namespace-isolated)
 │   ├── c2pa.py              # FastAPI router: /v1/c2pa/* (C2PA manifest bridge)
 │   ├── assent_api.py        # FastAPI router: /v1/assent/* (anonymous PDF-signer events)
+│   ├── assent_docs_api.py   # FastAPI router: /v1/assent/document/* (E2EE ciphertext blobs for send-to-sign)
 │   ├── sdk.py               # Async Python SDK (EtchClient)
 │   └── server.py            # FastAPI app entrypoint, lifespan, /health
 ├── assent-app/              # React+Vite frontend for Etch Assent (builds → site/assent/)
-│   ├── src/routes/          # Home, Sign, Verify
-│   ├── src/components/      # PdfViewer, SignatureField, SignaturePad, VerifyChain
-│   └── src/lib/             # hash, etch client, pdf (pdf-lib + PDF.js), signatures, handoff
+│   ├── src/routes/          # Home, Sign, Send, Verify
+│   ├── src/components/      # PdfViewer, SignatureField, SignaturePad, TextFieldOverlay, VerifyChain
+│   └── src/lib/             # crypto (AES-GCM WebCrypto), hash, etch, pdf (pdf-lib + PDF.js), signatures, handoff, routing
 ├── tests/
-│   ├── test_chain.py        # Unit tests: AuditChain, InclusionProof, verify
-│   ├── test_api.py          # Legacy API tests (httpx + ASGI, mocked DB)
-│   ├── test_sdk.py          # SDK client tests
-│   ├── test_batch_api.py    # Batch registration tests
-│   ├── test_c2pa.py         # C2PA compatibility tests
-│   ├── test_records_api.py  # SoR API tests
-│   └── test_assent_api.py   # Etch Assent public API tests
+│   ├── test_chain.py              # Unit tests: AuditChain, InclusionProof, verify
+│   ├── test_api.py                # Legacy API tests (httpx + ASGI, mocked DB)
+│   ├── test_sdk.py                # SDK client tests
+│   ├── test_batch_api.py          # Batch registration tests
+│   ├── test_c2pa.py               # C2PA compatibility tests
+│   ├── test_records_api.py        # SoR API tests
+│   ├── test_assent_api.py         # Etch Assent public event/chain API tests
+│   └── test_assent_docs_api.py    # Encrypted document storage API tests (V2)
 ├── docs/
-│   ├── eu-ai-act-prospects.md   # EU AI Act Article 50 compliance research
-│   ├── prospect-pipeline.md     # Business integration prospects
-│   ├── licensing-model.md       # License tiers, Nous network integration
-│   └── RELEASING.md             # Release procedure (PyPI via OIDC)
+│   ├── ETCH_ASSENT_SPEC.md        # Assent product + protocol spec (V1 + V2 send-to-sign)
+│   ├── eu-ai-act-prospects.md     # EU AI Act Article 50 compliance research
+│   ├── prospect-pipeline.md       # Business integration prospects
+│   ├── licensing-model.md         # License tiers, Nous network integration
+│   └── RELEASING.md               # Release procedure (PyPI via OIDC)
 ├── deploy/
-│   └── nginx.conf           # Nginx config (unused in prod — Caddy serves etch.locker)
+│   ├── Caddyfile.assent    # Caddy config for assent.etch.locker (serves SPA + proxies /v1/*)
+│   └── nginx.conf          # Legacy nginx config (unused in prod — Caddy serves etch.locker)
 ├── site/
-│   └── index.html           # Landing page (dark theme, self-contained, 762 lines)
+│   ├── index.html          # Landing page (dark theme, self-contained, 762 lines)
+│   └── assent/             # Built React SPA (output of `vite build` in assent-app/)
 ├── .github/workflows/
-│   ├── ci.yml               # Test matrix: Python 3.11/3.12/3.13, ruff lint
-│   └── release.yml          # PyPI publish on git tag v*
-├── pyproject.toml           # Hatch build, deps, pytest/ruff config
-├── Dockerfile               # Python 3.12-slim, non-root, port 8100
-├── docker-compose.yml       # etch (8101) + postgres + nginx
-├── README.md                # Quick start, API reference
-└── LICENSE.md               # Rising Sun License v1.0
+│   ├── ci.yml              # Test matrix: Python 3.11/3.12/3.13, ruff lint, assent-frontend (tsc + vite build)
+│   └── release.yml         # PyPI publish on git tag v*
+├── pyproject.toml          # Hatch build, deps, pytest/ruff config
+├── Dockerfile              # Python 3.12-slim, non-root, port 8100
+├── docker-compose.yml      # etch (8101) + postgres + nginx
+├── README.md               # Quick start, API reference
+└── LICENSE.md              # Rising Sun License v1.0
 ```
 
 ## Entry Points
 
 - **Server**: `etch/server.py` — `uvicorn etch.server:app --reload` (port 8100)
 - **Library**: `from etch import AuditChain, verify_inclusion_proof, EtchClient`
+- **Assent frontend**: `cd assent-app && npm run dev` (Vite dev server) or `npm run build` → `site/assent/`
 - **Tests**: `pytest` (asyncio_mode=auto)
 - **Docker**: `docker-compose up` (etch:8101, postgres, nginx:80)
 
@@ -77,12 +83,24 @@ etch/
 - `GET /v1/chain/root` — Current chain state
 
 ### /v1/assent/* (Etch Assent — anonymous, rate-limited)
+Event/chain endpoints (namespace pinned to `assent/public`, 20 events/hr per IP):
 - `POST /v1/assent/stamp` — Commit an `assent.event` (created/field_added/signed/finalized)
 - `GET /v1/assent/chain/{document_id}` — Fetch the event chain with integrity check
 - `GET /v1/assent/records/{record_id}` — Fetch a single receipt
 - `GET /v1/assent/records/{record_id}/proof` — Self-contained inclusion proof (public)
 - `GET /v1/assent/verify?hash={sha256}` — Find events by document hash (recipient-side)
-- Writes pinned to namespace `assent/public`. IP-limited to 20 events/hour; 429 includes `Retry-After`.
+
+E2EE document storage (send-to-sign, V2 slice 1 — 10 uploads/hr per IP, 15 MB cap):
+- `POST /v1/assent/document` — Upload opaque ciphertext → `{ document_id }`
+- `GET  /v1/assent/document/{doc_id}` — Download ciphertext (octet-stream)
+- `PUT  /v1/assent/document/{doc_id}` — Replace (signed re-upload)
+- `HEAD /v1/assent/document/{doc_id}` — Existence check
+
+Plaintext PDFs are encrypted client-side with AES-256-GCM. The key lives in the
+URL fragment (`…#key=<b64>`) which browsers never transmit, so Etch cannot
+decrypt anything it stores. Disk path configurable via `ETCH_ASSENT_DOC_DIR`
+(default `/var/etch/assent-documents`); designed so a future Cloudflare R2
+swap is just `_read` / `_write`.
 
 ### /v1/c2pa/* (C2PA bridge — no auth)
 - `POST /v1/c2pa/manifest` — Register C2PA manifest on chain
@@ -118,15 +136,37 @@ etch/
 - `ApiKey` (etch_api_keys) — Hashed API keys with mode
 - `RecordEntry` (etch_records) — SoR record entries
 
+### assent_api.py — Assent Events
+- `assent_router` — Public event stamping + chain reads
+- `_SlidingWindowLimiter`, `_client_ip` — Shared rate-limit primitives (reused by assent_docs_api)
+- `ensure_assent_namespace()` — Bootstrap `assent/public` namespace on lifespan
+
+### assent_docs_api.py — Encrypted Document Store (V2)
+- `assent_docs_router` — Opaque ciphertext upload/download/replace
+- File-backed by default; IO narrowed to `_read`/`_write` for R2 migration
+- Separate per-IP sliding window (10 uploads/hr) — uploads heavier than stamps
+
 ### sdk.py — Python SDK
 - `EtchClient(base_url, api_key)` — Async context manager
 - Legacy: `register()`, `verify()` (deprecated)
 - v2: `records.create()`, `records.verify()`
 
+## Assent Frontend (assent-app/)
+
+- **Stack**: React 18 + Vite 5 + TypeScript + Tailwind + react-router-dom 6
+- **Deps of note**: `pdf-lib` (write), `pdfjs-dist` (render), `qrcode` (send-link QR)
+- **Routes**: `/` (Home), `/sign` (local signing), `/send` (send-to-sign, V2), `/verify`
+- **lib/crypto.ts** — WebCrypto AES-256-GCM: `generateKey`, encrypt/decrypt, `[IV (12) || CT]` layout, base64url export for URL fragment
+- **lib/etch.ts** — Browser client for `/v1/assent/*`
+- **lib/pdf.ts** — pdf-lib writes + PDF.js rendering
+- **lib/routing.ts** — URL fragment key parsing (`#key=<b64>`)
+- Build output: `site/assent/` (deployed behind `deploy/Caddyfile.assent`)
+
 ## Configuration
 
 - `pyproject.toml` — Build (hatchling), deps, pytest (asyncio_mode=auto), ruff (py311, 120 chars)
-- Env: `ETCH_DATABASE_URL` or `DATABASE_URL` (default: sqlite+aiosqlite:///./etch.db)
+- Env: `ETCH_DATABASE_URL` / `DATABASE_URL` (default: `sqlite+aiosqlite:///./etch.db`)
+- Env: `ETCH_ASSENT_DOC_DIR` (default: `/var/etch/assent-documents`)
 
 ## Dependencies
 
@@ -136,10 +176,10 @@ etch/
 
 ## Production (rising server)
 
-- **URL**: https://etch.locker (Caddy reverse proxy, auto-TLS)
-- **Container**: app-container (port 8101→8100) + db-container
-- **Static site**: /opt/etch/site/index.html served by Caddy
-- **API proxy**: /v1/*, /health, /docs → localhost:8101
+- **API**: https://etch.locker (Caddy reverse proxy, auto-TLS) → container app-container (8101→8100)
+- **Assent SPA**: served from `site/assent/` behind `deploy/Caddyfile.assent`
+- **Static site**: `/opt/etch/site/index.html` served by Caddy
+- **DB**: db-container container
 
 ## Quick Start
 
@@ -148,4 +188,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 uvicorn etch.server:app --reload
+
+# Assent frontend
+cd assent-app && npm install && npm run dev
 ```
