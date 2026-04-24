@@ -116,6 +116,44 @@ class TestStamp:
         res = await http.post("/v1/assent/stamp", json=_event(event_type="bogus"))
         assert res.status_code == 422
 
+    async def test_accepts_uploaded_event_type(self, http: httpx.AsyncClient):
+        # `uploaded` is the sender-side event for the send-to-sign flow; it
+        # binds the plaintext hash the sender held to the ciphertext the
+        # server stores. A recipient's `created` references it as parent.
+        uploaded_hash = _sha("plaintext-sender-view")
+        uploaded = await http.post(
+            "/v1/assent/stamp",
+            json=_event(
+                document_id="doc_v2_flow",
+                event_type="uploaded",
+                document_hash=uploaded_hash,
+            ),
+        )
+        assert uploaded.status_code == 200
+        assert uploaded.json()["event_type"] == "uploaded"
+
+        # Recipient stitches `created` onto the uploaded event — index 1, and
+        # parent_hash must reference the uploaded event's document_hash so the
+        # chain-integrity check walks cleanly.
+        created = await http.post(
+            "/v1/assent/stamp",
+            json=_event(
+                document_id="doc_v2_flow",
+                event_type="created",
+                document_hash=uploaded_hash,
+                parent_hash=uploaded_hash,
+                event_index=1,
+            ),
+        )
+        assert created.status_code == 200, created.text
+
+        chain = await http.get("/v1/assent/chain/doc_v2_flow")
+        assert chain.status_code == 200
+        body = chain.json()
+        assert body["event_count"] == 2
+        assert body["chain_intact"] is True
+        assert [e["event_type"] for e in body["events"]] == ["uploaded", "created"]
+
     async def test_rejects_bad_hash(self, http: httpx.AsyncClient):
         res = await http.post(
             "/v1/assent/stamp",

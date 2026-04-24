@@ -60,7 +60,12 @@ RATE_LIMIT_MAX_REQUESTS = 20
 MAX_PAYLOAD_BYTES = 32 * 1024
 MAX_EVENTS_PER_DOCUMENT = 32
 
-VALID_EVENT_TYPES = {"created", "field_added", "signed", "countersigned", "finalized"}
+# "uploaded" is emitted by the sender in the send-to-sign (V2) flow the moment
+# they push ciphertext to /v1/assent/document. It carries the plaintext SHA-256
+# the sender saw locally, so the chain later binds the ciphertext-the-server-
+# held to the plaintext-the-recipient-signed. Without it, an adversarial sender
+# could claim after the fact that a different PDF was the one they sent.
+VALID_EVENT_TYPES = {"uploaded", "created", "field_added", "signed", "countersigned", "finalized"}
 
 # Salt for the per-IP bookkeeping hash. Kept in an env var so it can be rotated
 # in prod without a code change (rotation invalidates old hashes, which is the

@@ -2,6 +2,7 @@
 // or GET against the /v1/assent/* surface exposed by etch/assent_api.py.
 
 export type AssentEventType =
+  | "uploaded"
   | "created"
   | "field_added"
   | "signed"
@@ -173,6 +174,9 @@ export interface UploadDocumentResponse {
   object: "assent.document";
   document_id: string;
   size: number;
+  /** One-shot capability required on subsequent PUT. Treat like a secret — the
+   *  server only keeps its sha256 and won't return this value again. */
+  write_token: string;
 }
 
 export async function uploadDocument(ciphertext: BodyInit): Promise<UploadDocumentResponse> {
@@ -201,12 +205,16 @@ export async function downloadDocument(documentId: string): Promise<Uint8Array> 
 export async function replaceDocument(
   documentId: string,
   ciphertext: BodyInit,
+  writeToken: string,
 ): Promise<void> {
   const res = await fetch(
     `${apiBase()}/v1/assent/document/${encodeURIComponent(documentId)}`,
     {
       method: "PUT",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Assent-Write-Token": writeToken,
+      },
       body: ciphertext,
     },
   );

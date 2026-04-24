@@ -80,6 +80,7 @@ class TestUpload:
         body = res.json()
         assert body["object"] == "assent.document"
         assert body["size"] == len(ciphertext)
+        assert isinstance(body["write_token"], str) and len(body["write_token"]) >= 32
         doc_id = body["document_id"]
         assert len(doc_id) >= 16
 
@@ -87,6 +88,13 @@ class TestUpload:
         assert got.status_code == 200
         assert got.content == ciphertext
         assert got.headers["content-type"] == "application/octet-stream"
+
+    async def test_each_upload_gets_a_fresh_token(self, http):
+        client, _ = http
+        first = (await client.post("/v1/assent/document", content=b"a")).json()
+        second = (await client.post("/v1/assent/document", content=b"b")).json()
+        assert first["write_token"] != second["write_token"]
+        assert first["document_id"] != second["document_id"]
 
     async def test_empty_body_rejected(self, http):
         client, _ = http
@@ -143,11 +151,14 @@ class TestLookup:
         orig = os.urandom(1024)
         signed = os.urandom(1200)
         upload = await client.post("/v1/assent/document", content=orig)
-        doc_id = upload.json()["document_id"]
+        body = upload.json()
+        doc_id = body["document_id"]
+        token = body["write_token"]
 
         replaced = await client.put(
             f"/v1/assent/document/{doc_id}",
             content=signed,
+            headers={"X-Assent-Write-Token": token},
         )
         assert replaced.status_code == 204
 
@@ -156,8 +167,48 @@ class TestLookup:
 
     async def test_put_unknown_id_404(self, http):
         client, _ = http
+        # 404 beats 403 here — we check doc existence before the token.
         res = await client.put(
             "/v1/assent/document/unknown123",
             content=b"whatever",
+            headers={"X-Assent-Write-Token": "irrelevant"},
         )
         assert res.status_code == 404
+
+    async def test_put_without_token_rejected(self, http):
+        client, _ = http
+        upload = await client.post("/v1/assent/document", content=b"orig")
+        doc_id = upload.json()["document_id"]
+        res = await client.put(
+            f"/v1/assent/document/{doc_id}",
+            content=b"replacement",
+        )
+        assert res.status_code == 403
+
+    async def test_put_with_wrong_token_rejected(self, http):
+        client, _ = http
+        upload = await client.post("/v1/assent/document", content=b"orig")
+        doc_id = upload.json()["document_id"]
+        res = await client.put(
+            f"/v1/assent/document/{doc_id}",
+            content=b"replacement",
+            headers={"X-Assent-Write-Token": "not-the-real-token"},
+        )
+        assert res.status_code == 403
+
+        # Original bytes untouched — reject before write.
+        got = await client.get(f"/v1/assent/document/{doc_id}")
+        assert got.content == b"orig"
+
+    async def test_put_tokens_are_isolated_per_document(self, http):
+        client, _ = http
+        a = (await client.post("/v1/assent/document", content=b"a")).json()
+        b = (await client.post("/v1/assent/document", content=b"b")).json()
+        # Cross-apply: present B's token against A's doc. Must be rejected —
+        # otherwise any uploader could overwrite anyone else's document.
+        res = await client.put(
+            f"/v1/assent/document/{a['document_id']}",
+            content=b"tampered",
+            headers={"X-Assent-Write-Token": b["write_token"]},
+        )
+        assert res.status_code == 403

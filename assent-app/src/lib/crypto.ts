@@ -94,17 +94,38 @@ function base64UrlToBytes(str: string): Uint8Array {
 
 // ---------------------------------------------------------------------------
 // Fragment-key URL helpers
+//
+// The fragment carries both the decryption key and the write-back capability
+// token as a single URL-safe bundle (`#key=K&wt=T`). Browsers never transmit
+// fragments in HTTP requests, so neither ever reaches the server. Bundling
+// them means "has-the-link" implies both "can-decrypt" and "can-write-signed-
+// copy-back" — which matches the product flow: the recipient needs both.
 // ---------------------------------------------------------------------------
+
+function readFragmentParams(): URLSearchParams | null {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#")) return null;
+  return new URLSearchParams(hash.slice(1));
+}
 
 /** Read the encryption key from ``location.hash`` (``#key=...``), if present. */
 export function readKeyFromFragment(): string | null {
-  const hash = window.location.hash;
-  if (!hash.startsWith("#")) return null;
-  const params = new URLSearchParams(hash.slice(1));
-  return params.get("key");
+  return readFragmentParams()?.get("key") ?? null;
 }
 
-/** Build a sign-via-link URL carrying the key in the fragment. */
-export function buildSignLink(documentId: string, exportedKey: string): string {
-  return `${window.location.origin}/sign/${encodeURIComponent(documentId)}#key=${exportedKey}`;
+/** Read the write-back capability token (``#wt=...``), if present. */
+export function readWriteTokenFromFragment(): string | null {
+  return readFragmentParams()?.get("wt") ?? null;
+}
+
+/** Build a sign-via-link URL carrying the key and write token in the fragment. */
+export function buildSignLink(
+  documentId: string,
+  exportedKey: string,
+  writeToken: string,
+): string {
+  // base64url uses [A-Za-z0-9_-], all of which pass through encodeURIComponent
+  // unchanged, so URLSearchParams leaves these values alone.
+  const frag = new URLSearchParams({ key: exportedKey, wt: writeToken }).toString();
+  return `${window.location.origin}/sign/${encodeURIComponent(documentId)}#${frag}`;
 }

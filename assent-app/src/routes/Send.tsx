@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { uploadDocument } from "../lib/etch";
-import { toArrayBuffer } from "../lib/hash";
+import { stampEvent, uploadDocument } from "../lib/etch";
+import { sha256, toArrayBuffer } from "../lib/hash";
 import { buildSignLink, encrypt, generateKey } from "../lib/crypto";
 
 const MAX_PLAINTEXT_BYTES = 10 * 1024 * 1024;
@@ -10,6 +10,7 @@ type State =
   | { kind: "idle" }
   | { kind: "encrypting"; filename: string }
   | { kind: "uploading"; filename: string }
+  | { kind: "stamping"; filename: string }
   | { kind: "ready"; filename: string; link: string; documentId: string }
   | { kind: "error"; message: string };
 
@@ -43,13 +44,34 @@ export default function Send() {
     try {
       setState({ kind: "encrypting", filename: file.name });
       const plaintext = new Uint8Array(await file.arrayBuffer());
+      // Compute the plaintext hash before encrypting so we can bind it to the
+      // chain right after upload. The server never sees plaintext — it sees
+      // the hash via /stamp and the ciphertext via /document, and those two
+      // combined tell it "at upload time the sender held plaintext whose
+      // SHA-256 is X." That's what closes the adversarial-sender gap.
+      const plaintextHash = await sha256(plaintext);
       const { key, exported } = await generateKey();
       const ciphertext = await encrypt(plaintext, key);
 
       setState({ kind: "uploading", filename: file.name });
-      const { document_id } = await uploadDocument(toArrayBuffer(ciphertext));
+      const { document_id, write_token } = await uploadDocument(toArrayBuffer(ciphertext));
 
-      const link = buildSignLink(document_id, exported);
+      // Stamp `document.uploaded` as event 0 for this doc_id. The recipient's
+      // subsequent `created` event will reference this hash as its parent, so
+      // the chain covers the full sender→recipient round-trip.
+      setState({ kind: "stamping", filename: file.name });
+      await stampEvent({
+        kind: "assent.event",
+        schema_version: 1,
+        document_id,
+        event_type: "uploaded",
+        document_hash: plaintextHash,
+        parent_hash: null,
+        event_index: 0,
+        timestamp: new Date().toISOString(),
+      });
+
+      const link = buildSignLink(document_id, exported, write_token);
       setState({ kind: "ready", filename: file.name, link, documentId: document_id });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Encryption or upload failed.";
@@ -86,11 +108,15 @@ export default function Send() {
         <div className="text-sm text-danger text-center">{state.message}</div>
       )}
 
-      {(state.kind === "encrypting" || state.kind === "uploading") && (
+      {(state.kind === "encrypting" ||
+        state.kind === "uploading" ||
+        state.kind === "stamping") && (
         <div className="card p-8 text-center text-sm text-text-dim">
           {state.kind === "encrypting"
             ? `Encrypting ${state.filename}…`
-            : `Uploading ciphertext for ${state.filename}…`}
+            : state.kind === "uploading"
+              ? `Uploading ciphertext for ${state.filename}…`
+              : `Registering on the Etch chain…`}
         </div>
       )}
 

@@ -7,6 +7,7 @@ import TextFieldOverlay from "../components/TextFieldOverlay";
 import {
   downloadDocument,
   EtchApiError,
+  fetchDocumentChain,
   replaceDocument,
   stampEvent,
   type AssentEventPayload,
@@ -18,6 +19,7 @@ import {
   encrypt,
   importKey,
   readKeyFromFragment,
+  readWriteTokenFromFragment,
 } from "../lib/crypto";
 import { takePending } from "../lib/handoff";
 import { newDocumentId, sha256, toArrayBuffer } from "../lib/hash";
@@ -50,6 +52,8 @@ export default function Sign() {
   const [bytes, setBytes] = useState<Uint8Array | null>(null);
   const [filename, setFilename] = useState<string>("document.pdf");
   const recipientKeyRef = useRef<CryptoKey | null>(null);
+  const recipientWriteTokenRef = useRef<string | null>(null);
+  const [tamperWarning, setTamperWarning] = useState<string | null>(null);
 
   const [documentId] = useState(() =>
     recipientDocumentId ?? newDocumentId(),
@@ -91,6 +95,11 @@ export default function Sign() {
           navigate(pathFor("home"));
           return;
         }
+        // The write token lives in the same fragment as the key. It's not
+        // required to decrypt + sign — only to push the signed copy back. If
+        // it's missing (legacy link), we still render the sign UI but skip
+        // the PUT at the end.
+        recipientWriteTokenRef.current = readWriteTokenFromFragment();
         try {
           const [ciphertext, cryptoKey] = await Promise.all([
             downloadDocument(recipientDocumentId),
@@ -144,15 +153,51 @@ export default function Sign() {
         if (cancelled) return;
         originalHashRef.current = hash;
         lastHashRef.current = hash;
+
+        // Recipient mode: the sender stamped `uploaded` at index 0 with the
+        // plaintext hash they held. We stitch `created` onto that chain and
+        // verify the hash agrees with what we just decrypted — a mismatch
+        // means the ciphertext was swapped between upload and retrieval.
+        // Self-sign mode (or legacy recipient links with no uploaded event)
+        // falls through to the standalone index=0 / parent=null case.
+        let createdIndex = 0;
+        let parentHash: string | null = null;
+        if (isRecipient) {
+          try {
+            const chain = await fetchDocumentChain(documentId);
+            if (cancelled) return;
+            const uploaded = chain.events.find((e) => e.event_type === "uploaded");
+            if (uploaded && uploaded.document_hash !== hash) {
+              setTamperWarning(
+                "The document we decrypted doesn't match the hash the sender " +
+                  "registered on the Etch chain. The ciphertext may have been " +
+                  "swapped after upload. Review carefully before signing.",
+              );
+            }
+            if (chain.events.length > 0) {
+              createdIndex = chain.event_count;
+              parentHash = chain.events[chain.events.length - 1].document_hash;
+            }
+          } catch (err) {
+            // 404 = no prior events (legacy sender). Transient errors fall
+            // through to standalone mode rather than block signing — the
+            // recipient can always sign locally even if the chain pre-fetch
+            // fails.
+            if (!(err instanceof EtchApiError && err.status === 404)) {
+              console.warn("[etch] chain pre-fetch failed, continuing standalone", err);
+            }
+          }
+        }
+
         const receipt = await stampEvent(buildEvent({
           documentId,
           eventType: "created",
           documentHash: hash,
-          parentHash: null,
-          eventIndex: 0,
+          parentHash,
+          eventIndex: createdIndex,
         }));
         if (cancelled) return;
-        eventIndexRef.current = 1;
+        eventIndexRef.current = createdIndex + 1;
         receiptRef.current = receipt;
       } catch (err) {
         if (cancelled) return;
@@ -162,7 +207,7 @@ export default function Sign() {
     return () => {
       cancelled = true;
     };
-  }, [bytes, documentId]);
+  }, [bytes, documentId, isRecipient]);
 
   // --- 3. Placement on the active page -----------------------------------
 
@@ -339,17 +384,30 @@ export default function Sign() {
       // Recipient flow: re-encrypt the flattened PDF with the same key the
       // sender generated and PUT it back at the same doc_id. The sender's
       // link still decrypts with their copy of the key.
+      //
+      // The PUT is authorized by the write_token the sender embedded in the
+      // link fragment. Links minted before that change have no token — the
+      // user can still sign locally, they just can't push the signed copy
+      // back over the E2EE channel.
       if (isRecipient && recipientKeyRef.current && recipientDocumentId) {
-        setBusyMsg("Returning signed copy…");
-        try {
-          const reEncrypted = await encrypt(flattened, recipientKeyRef.current);
-          await replaceDocument(recipientDocumentId, toArrayBuffer(reEncrypted));
-        } catch (err) {
-          // Don't block the user — local download still works; we just warn.
-          const msg = err instanceof Error ? err.message : String(err);
-          setError(
-            `Signed locally, but couldn't return the encrypted copy to the sender: ${msg}.`,
-          );
+        if (!recipientWriteTokenRef.current) {
+          console.warn("[etch] no write_token in fragment; skipping encrypted return");
+        } else {
+          setBusyMsg("Returning signed copy…");
+          try {
+            const reEncrypted = await encrypt(flattened, recipientKeyRef.current);
+            await replaceDocument(
+              recipientDocumentId,
+              toArrayBuffer(reEncrypted),
+              recipientWriteTokenRef.current,
+            );
+          } catch (err) {
+            // Don't block the user — local download still works; we just warn.
+            const msg = err instanceof Error ? err.message : String(err);
+            setError(
+              `Signed locally, but couldn't return the encrypted copy to the sender: ${msg}.`,
+            );
+          }
         }
       }
 
@@ -613,6 +671,15 @@ export default function Sign() {
                 View verify page
               </Link>
             </div>
+          </div>
+        )}
+
+        {tamperWarning && (
+          <div className="card border-danger/60 bg-danger/10 p-4 text-sm text-danger space-y-1">
+            <div className="font-semibold uppercase tracking-wide text-xs">
+              Tamper check failed
+            </div>
+            <div>{tamperWarning}</div>
           </div>
         )}
 

@@ -20,12 +20,13 @@ surface doesn't change.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -60,6 +61,15 @@ class UploadResponse(BaseModel):
     object: str = "assent.document"
     document_id: str = Field(description="Opaque handle for the ciphertext")
     size: int = Field(description="Bytes stored")
+    write_token: str = Field(
+        description=(
+            "One-shot-ish capability that authorizes replacing this document "
+            "(PUT). The server only retains sha256(token); the plaintext is "
+            "returned here once and never again. Callers are expected to put "
+            "this in the URL fragment alongside the encryption key so the "
+            "recipient (and only the recipient) can upload the signed copy."
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +88,13 @@ def _doc_path(doc_id: str) -> Path:
     if not doc_id or not all(c.isalnum() or c in "_-" for c in doc_id):
         raise HTTPException(status_code=400, detail="invalid document_id")
     return DOC_DIR / doc_id
+
+
+def _token_path(doc_id: str) -> Path:
+    # Sidecar file holding sha256(write_token) in hex. Colocated with the
+    # ciphertext so a future R2 migration moves both with the same _read/_write
+    # pattern (just another key).
+    return _doc_path(doc_id).with_name(f"{doc_id}.token")
 
 
 def _ensure_dir() -> None:
@@ -99,6 +116,40 @@ def _write(doc_id: str, data: bytes) -> None:
     tmp = path.with_suffix(".partial")
     tmp.write_bytes(data)
     tmp.replace(path)
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("ascii")).hexdigest()
+
+
+def _issue_token(doc_id: str) -> str:
+    """Mint a write token, persist its hash, return the plaintext to the caller."""
+    token = secrets.token_urlsafe(32)  # 256 bits — opaque to the server
+    _ensure_dir()
+    path = _token_path(doc_id)
+    tmp = path.with_suffix(".partial")
+    tmp.write_text(_hash_token(token))
+    tmp.replace(path)
+    return token
+
+
+def _check_token(doc_id: str, presented: str | None) -> None:
+    """Enforce that the caller knows the write token for this doc_id.
+
+    Rejects three failure modes with a single 403 so we don't leak which
+    condition tripped (no token file, missing header, or mismatched token):
+    that just tells an attacker which part of their guess was wrong.
+    """
+    path = _token_path(doc_id)
+    if not path.is_file():
+        raise HTTPException(status_code=403, detail="write not authorized")
+    if not presented:
+        raise HTTPException(status_code=403, detail="write not authorized")
+    expected = path.read_text().strip()
+    # Constant-time compare so a timing side channel can't reveal the stored
+    # hash byte-by-byte. (Token is high-entropy so this is belt-and-suspenders.)
+    if not secrets.compare_digest(expected, _hash_token(presented)):
+        raise HTTPException(status_code=403, detail="write not authorized")
 
 
 # ---------------------------------------------------------------------------
@@ -142,12 +193,13 @@ async def upload_document(request: Request) -> UploadResponse:
     doc_id = _new_doc_id()
     try:
         _write(doc_id, data)
+        write_token = _issue_token(doc_id)
     except OSError as exc:
         logger.warning(f"[Etch] document write failed: {exc}")
         raise HTTPException(status_code=503, detail="Document store unavailable")
 
     logger.info(f"[Etch] assent document {doc_id} stored ({len(data)} bytes)")
-    return UploadResponse(document_id=doc_id, size=len(data))
+    return UploadResponse(document_id=doc_id, size=len(data), write_token=write_token)
 
 
 @assent_docs_router.get(
@@ -184,10 +236,20 @@ async def head_document(document_id: str) -> Response:
     summary="Replace an encrypted document (signed version)",
     status_code=204,
 )
-async def replace_document(document_id: str, request: Request) -> Response:
+async def replace_document(
+    document_id: str,
+    request: Request,
+    x_assent_write_token: str | None = Header(default=None),
+) -> Response:
     """After the recipient signs and re-encrypts, they PUT the new ciphertext
     back to the same ``document_id``. The fragment key is reused so the sender
-    can still decrypt with their original link."""
+    can still decrypt with their original link.
+
+    Authorization: caller must present the ``X-Assent-Write-Token`` issued at
+    POST time. The sender bakes it into the share link's URL fragment so the
+    recipient receives it out-of-band alongside the decryption key — the server
+    never sees the token in transit until it's returned here.
+    """
     ip = _client_ip(request)
     if not _upload_limiter.check(ip):
         raise HTTPException(
@@ -201,6 +263,10 @@ async def replace_document(document_id: str, request: Request) -> Response:
     path = _doc_path(document_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"document {document_id} not found")
+
+    # Authorize before reading the body so a 403 doesn't waste bandwidth on a
+    # 15 MB upload.
+    _check_token(document_id, x_assent_write_token)
 
     data = await _read_body(request)
     try:
