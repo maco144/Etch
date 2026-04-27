@@ -19,6 +19,7 @@ from .api import router as proof_router
 from .assent_api import assent_router, ensure_assent_namespace
 from .assent_docs_api import assent_docs_router
 from .c2pa import c2pa_router
+from .glyph_api import glyph_router
 from .records_api import records_router
 from .db import create_tables
 
@@ -46,6 +47,7 @@ app.include_router(c2pa_router)
 app.include_router(records_router)
 app.include_router(assent_router)
 app.include_router(assent_docs_router)
+app.include_router(glyph_router)
 
 
 @app.get("/health")
