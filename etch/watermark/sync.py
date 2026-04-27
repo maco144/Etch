@@ -38,6 +38,19 @@ def find_alignment(soft_bits: np.ndarray) -> tuple[int, float]:
     (8 bits at payload positions 0..7) against the soft stream — higher is
     a more confident lock.
     """
+    offsets = rank_alignments(soft_bits)
+    return offsets[0]
+
+
+def rank_alignments(soft_bits: np.ndarray) -> list[tuple[int, float]]:
+    """
+    Return all 56 candidate alignments sorted by sync score (descending).
+
+    The sync prefix is only 8 bits, which means a payload that happens to
+    contain the 8-bit sync pattern at some other position will score nearly
+    as high as the true alignment. The caller should iterate this list and
+    accept the first alignment whose decoded payload passes CRC.
+    """
     if soft_bits.size < PAYLOAD_BITS:
         raise ValueError(f"need at least {PAYLOAD_BITS} chunks, got {soft_bits.size}")
 
@@ -45,21 +58,17 @@ def find_alignment(soft_bits: np.ndarray) -> tuple[int, float]:
     n = soft_bits.size
     k = np.arange(n)
 
-    best_offset = 0
-    best_score = -np.inf
+    scored: list[tuple[int, float]] = []
     for t in range(PAYLOAD_BITS):
         payload_pos = (k + t) % PAYLOAD_BITS
-        # Mask: chunks that fall on a sync-prefix payload position.
         mask = payload_pos < SYNC_BITS
         if not mask.any():
             continue
-        idx = payload_pos[mask]  # which sync bit each masked chunk should match
+        idx = payload_pos[mask]
         contribution = soft_bits[mask] * template[idx]
-        score = float(contribution.sum() / mask.sum())
-        if score > best_score:
-            best_score = score
-            best_offset = t
-    return best_offset, best_score
+        scored.append((t, float(contribution.sum() / mask.sum())))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
 
 
 def majority_decode(soft_bits: np.ndarray, offset: int) -> Optional[np.ndarray]:

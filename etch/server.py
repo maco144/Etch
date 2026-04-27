@@ -22,6 +22,7 @@ from .c2pa import c2pa_router
 from .dooh_api import dooh_router
 from .glyph_api import glyph_router
 from .records_api import records_router
+from .watermark_api import watermark_router
 from .db import create_tables
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ app.include_router(dooh_router)
 app.include_router(assent_router)
 app.include_router(assent_docs_router)
 app.include_router(glyph_router)
+app.include_router(watermark_router)
 
 
 @app.get("/health")

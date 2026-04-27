@@ -26,7 +26,7 @@ from .spread import (
     detect_chunk,
     embed_chunk,
 )
-from .sync import find_alignment, majority_decode
+from .sync import majority_decode, rank_alignments
 
 DEFAULT_CHUNK_SECONDS = 1.0
 
@@ -134,26 +134,41 @@ def extract(
     for i in range(n_chunks):
         soft[i] = detect_chunk(chunked[i], sr, seed=seed, band=band, n_bins=n_bins)
 
-    offset, score = find_alignment(soft)
-    n_reps = (n_chunks - offset) // PAYLOAD_BITS
+    # The 8-bit sync prefix isn't unique — a payload can coincidentally
+    # contain the sync pattern at some other position, scoring nearly as
+    # high as the true alignment. Walk candidates by descending sync score
+    # and accept the first whose CRC validates. CRC-12's 1-in-4096 false-
+    # positive rate makes this safe over 56 trials.
+    candidates = rank_alignments(soft)
+    last_error = "no candidate alignment produced a valid CRC"
+    for offset, score in candidates:
+        hard = majority_decode(soft, offset)
+        if hard is None:
+            continue
+        try:
+            version, shortcode_int = unpack_payload(hard)
+        except PayloadError as exc:
+            last_error = str(exc)
+            continue
+        n_reps = max(1, n_chunks // PAYLOAD_BITS)
+        return ExtractResult(
+            found=True,
+            shortcode_int=shortcode_int,
+            version=version,
+            n_chunks=n_chunks,
+            n_repetitions=n_reps,
+            sync_offset=offset,
+            sync_score=score,
+        )
 
-    hard = majority_decode(soft, offset)
-    if hard is None:
-        return ExtractResult(False, None, None, n_chunks, n_reps, offset, score,
-                             error="no full repetition at recovered offset")
-
-    try:
-        version, shortcode_int = unpack_payload(hard)
-    except PayloadError as exc:
-        return ExtractResult(False, None, None, n_chunks, n_reps, offset, score,
-                             error=str(exc))
-
+    top_offset, top_score = candidates[0] if candidates else (None, None)
     return ExtractResult(
-        found=True,
-        shortcode_int=shortcode_int,
-        version=version,
+        found=False,
+        shortcode_int=None,
+        version=None,
         n_chunks=n_chunks,
-        n_repetitions=n_reps,
-        sync_offset=offset,
-        sync_score=score,
+        n_repetitions=max(1, n_chunks // PAYLOAD_BITS),
+        sync_offset=top_offset,
+        sync_score=top_score,
+        error=last_error,
     )

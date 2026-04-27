@@ -37,13 +37,13 @@ DEFAULT_SEED = "ETCH_V1"
 DEFAULT_BAND_HZ = (2000.0, 6000.0)
 
 # Number of bins used per chunk. More bins → lower per-bit error rate via
-# √N correlation gain. 600 keeps the 2–6 kHz band well-populated without
-# concentrating audible energy.
-DEFAULT_BINS_PER_CHUNK = 600
+# √N correlation gain. 1000 gives plenty of headroom against ffmpeg lossy
+# pipelines (MP3/AAC/Opus) while keeping the watermark inaudible.
+DEFAULT_BINS_PER_CHUNK = 1000
 
 # Modulation strength α. Per-bin amplitude shift is (1 ± α) ≈ ±0.5 dB at
-# α=0.06, distributed across hundreds of bins in a busy band. Tuned so that
-# round-trip per-chunk detection on synthetic music_like audio is ~100%
+# α=0.06, distributed across the selected bins in a 4 kHz band. Tuned so that
+# round-trip extraction survives MP3 128k / AAC 128k / Opus 128k re-encodes
 # while the time-domain peak watermark delta stays below −40 dB.
 DEFAULT_ALPHA = 0.06
 
@@ -53,10 +53,11 @@ def _bin_selection(seed: str, n_fft: int, sr: int,
     """
     Deterministically pick `n_bins` distinct FFT bin indices inside `band`.
 
-    Trim-invariant: depends only on (seed, n_fft, sr, band, n_bins). This
-    is critical — the decoder doesn't know which chunk of the original
-    encode it's looking at after a re-encode trims pre-roll, so the bin
-    selection must be the same for every chunk.
+    Trim- AND resample-invariant: the seed depends only on the protocol
+    parameters (seed, band, n_bins), not on n_fft or sr. As long as the
+    decoder uses the same `chunk_seconds`, the bin indices always represent
+    the same physical frequencies — which is what we need to survive the
+    sample-rate change that codecs like Opus impose (everything → 48 kHz).
     """
     f_lo, f_hi = band
     bin_lo = max(1, int(np.floor(f_lo * n_fft / sr)))
@@ -68,8 +69,10 @@ def _bin_selection(seed: str, n_fft: int, sr: int,
             f"n_fft={n_fft}, need {n_bins}"
         )
 
-    h = hashlib.sha256(f"{seed}:bins:{n_fft}:{sr}".encode()).digest()
+    h = hashlib.sha256(f"{seed}:bins:{f_lo}:{f_hi}:{n_bins}".encode()).digest()
     rng = np.random.default_rng(int.from_bytes(h[:8], "big"))
+    # rng.choice over the candidate range — same seed + same range → same picks
+    # whenever sr and chunk_seconds are consistent (e.g. chunk_seconds=1.0).
     return rng.choice(candidates, size=n_bins, replace=False)
 
 
