@@ -11,3 +11,6 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Internal/private docs — never commit
+docs/_private/

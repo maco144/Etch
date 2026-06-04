@@ -35,9 +35,7 @@ etch/
 │   └── test_assent_docs_api.py    # Encrypted document storage API tests (V2)
 ├── docs/
 │   ├── ETCH_ASSENT_SPEC.md        # Assent product + protocol spec (V1 + V2 send-to-sign)
-│   ├── eu-ai-act-prospects.md     # EU AI Act Article 50 compliance research
-│   ├── prospect-pipeline.md       # Business integration prospects
-│   ├── licensing-model.md         # License tiers, Nous network integration
+│   ├── dooh-spec.md               # DOOH playback receipt spec (CC-BY 4.0)
 │   └── RELEASING.md               # Release procedure (PyPI via OIDC)
 ├── deploy/
 │   ├── Caddyfile.assent    # Caddy config for assent.etch.locker (serves SPA + proxies /v1/*)
@@ -174,12 +172,12 @@ swap is just `_read` / `_write`.
 - Optional: asyncpg >=0.29 (postgres)
 - Dev: pytest, pytest-asyncio, ruff, mypy
 
-## Production (rising server)
+## Production
 
-- **API**: https://etch.locker (Caddy reverse proxy, auto-TLS) → container app-container (8101→8100)
+- **API**: https://etch.locker (Caddy reverse proxy, auto-TLS)
 - **Assent SPA**: served from `site/assent/` behind `deploy/Caddyfile.assent`
-- **Static site**: `/opt/etch/site/index.html` served by Caddy
-- **DB**: db-container container
+- **Static site**: landing page served by Caddy
+- **DB**: PostgreSQL container
 
 ## Quick Start
 

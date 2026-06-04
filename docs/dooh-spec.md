@@ -1,9 +1,7 @@
 # DOOH Playback Receipt — Spec (v0)
 
 **Status:** Draft
-**Owner:** Alex
-**Created:** 2026-04-27
-**Location:** `~/etch/docs/dooh-spec.md`
+**License:** CC-BY 4.0
 
 ## Overview
 
