@@ -6,6 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 import type { FieldLocation } from "./etch";
 import { toArrayBuffer } from "./hash";
+import type { CapturedSignature } from "./signatures";
 
 // Vite's bundler resolves ?url imports; the worker ships alongside the app so
 // PDF.js can run its rendering pipeline off the main thread.
@@ -66,33 +67,36 @@ export interface TextFieldValue extends FieldLocation {
   fontSize: number;
 }
 
+export interface SignatureFieldValue extends FieldLocation {
+  id: string;
+  label?: string; // optional display tag ("Signer 1") — no routing behind it, no input UI yet
+  signed: boolean;
+  signature?: CapturedSignature;
+  signerLabel?: string;
+  signedAt?: string;
+}
+
 export interface FlattenArgs {
   originalBytes: Uint8Array;
-  signaturePng: string; // data URL
-  location: FieldLocation; // in PDF points
+  signatures: { location: FieldLocation; png: string }[];
   textFields: TextFieldValue[];
-  receiptId: string;
   documentId: string;
   verifyUrl: string;
   signerLabel: string;
 }
 
 /**
- * Stamp the signature PNG onto the target page, embed an audit footer on the
- * last page with the receipt ID and a QR code, and return the updated bytes.
- * The resulting PDF is what we hash for the `finalized` event.
+ * Stamp every signature PNG onto its target page, embed an audit footer on
+ * the last page with the document ID and a QR code, and return the updated
+ * bytes. The resulting PDF is what we hash for the `finalized` event.
  */
 export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(args.originalBytes);
   const pages = pdfDoc.getPages();
 
-  if (args.location.page < 1 || args.location.page > pages.length) {
-    throw new Error(`signature page ${args.location.page} out of range`);
-  }
-
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  // Text fields first, so the signature visually sits on top if they overlap.
+  // Text fields first, so signatures visually sit on top if they overlap.
   // Empty-value fields are skipped — a user who placed a field and typed
   // nothing clearly didn't want it baked in.
   for (const tf of args.textFields) {
@@ -111,19 +115,23 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
     });
   }
 
-  const sigPng = await pdfDoc.embedPng(args.signaturePng);
-  const targetPage = pages[args.location.page - 1];
-  const { height: pageHeight } = targetPage.getSize();
-
-  // Our UI coordinate system has y=0 at the top; pdf-lib uses PDF points with
-  // y=0 at the bottom. Translate here.
-  const pdfY = pageHeight - args.location.y - args.location.height;
-  targetPage.drawImage(sigPng, {
-    x: args.location.x,
-    y: pdfY,
-    width: args.location.width,
-    height: args.location.height,
-  });
+  for (const sig of args.signatures) {
+    if (sig.location.page < 1 || sig.location.page > pages.length) {
+      throw new Error(`signature page ${sig.location.page} out of range`);
+    }
+    const sigPng = await pdfDoc.embedPng(sig.png);
+    const targetPage = pages[sig.location.page - 1];
+    const { height: pageHeight } = targetPage.getSize();
+    // Our UI coordinate system has y=0 at the top; pdf-lib uses PDF points
+    // with y=0 at the bottom. Translate here.
+    const pdfY = pageHeight - sig.location.y - sig.location.height;
+    targetPage.drawImage(sigPng, {
+      x: sig.location.x,
+      y: pdfY,
+      width: sig.location.width,
+      height: sig.location.height,
+    });
+  }
 
   // Audit watermark on the last page.
   const lastPage = pages[pages.length - 1];
@@ -155,7 +163,7 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
     font,
     color: rgb(0.1, 0.1, 0.15),
   });
-  lastPage.drawText(`Receipt: ${args.receiptId}`, {
+  lastPage.drawText(`Document: ${args.documentId}`, {
     x: 100,
     y: footerY + 30,
     size: 8,
@@ -179,12 +187,8 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
 
   // Stash receipt metadata in the PDF info dictionary so an offline verifier
   // can pull it back out without parsing the visual watermark.
-  pdfDoc.setSubject(`etch-assent:${args.receiptId}`);
-  pdfDoc.setKeywords([
-    "etch-assent",
-    `receipt:${args.receiptId}`,
-    `document:${args.documentId}`,
-  ]);
+  pdfDoc.setSubject(`etch-assent:${args.documentId}`);
+  pdfDoc.setKeywords(["etch-assent", `document:${args.documentId}`]);
   pdfDoc.setProducer("Etch Assent");
 
   return pdfDoc.save({ useObjectStreams: false });

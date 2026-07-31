@@ -25,13 +25,13 @@ import { takePending } from "../lib/handoff";
 import { newDocumentId, sha256, toArrayBuffer } from "../lib/hash";
 import { pathFor } from "../lib/routing";
 import { downloadBytes, downloadJson, flattenSignedPdf } from "../lib/pdf";
-import type { RenderedPage, TextFieldValue } from "../lib/pdf";
+import type { RenderedPage, SignatureFieldValue, TextFieldValue } from "../lib/pdf";
 import { signWithPasskey, type CapturedSignature } from "../lib/signatures";
 
 type PlacementMode = "signature" | "text";
 
 interface Stage {
-  step: "placing" | "signing" | "stamping" | "finalized";
+  step: "placing" | "review" | "finalized";
   signer: { email: string; name: string };
 }
 
@@ -65,7 +65,9 @@ export default function Sign() {
 
   const [activePage, setActivePage] = useState(1);
   const [pagesByNumber, setPagesByNumber] = useState<Map<number, RenderedPage>>(new Map());
-  const [field, setField] = useState<FieldLocation | null>(null);
+  const [signatureFields, setSignatureFields] = useState<SignatureFieldValue[]>([]);
+  const [signingFieldId, setSigningFieldId] = useState<string | null>(null);
+  const credentialIdRef = useRef<string | null>(null);
   const [textFields, setTextFields] = useState<TextFieldValue[]>([]);
   const [placementMode, setPlacementMode] = useState<PlacementMode>("signature");
   const [autoFocusTextId, setAutoFocusTextId] = useState<string | null>(null);
@@ -74,7 +76,6 @@ export default function Sign() {
     step: "placing",
     signer: { email: "", name: "" },
   });
-  const [capturedSig, setCapturedSig] = useState<CapturedSignature | null>(null);
   const [showPad, setShowPad] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyMsg, setBusyMsg] = useState<string | null>(null);
@@ -247,12 +248,14 @@ export default function Sign() {
         return;
       }
 
-      // signature placement (default)
-      const next: FieldLocation = {
+      // signature placement — always adds a new field, same as text fields.
+      const next: SignatureFieldValue = {
+        id: crypto.randomUUID(),
         page,
         ...place(200, 60),
+        signed: false,
       };
-      setField(next);
+      setSignatureFields((prev) => [...prev, next]);
       void emitFieldAdded(next);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,6 +268,15 @@ export default function Sign() {
   const removeTextField = useCallback((id: string) => {
     setTextFields((prev) => prev.filter((tf) => tf.id !== id));
   }, []);
+  const removeSignatureField = useCallback((id: string) => {
+    setSignatureFields((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+  const updateSignatureField = useCallback(
+    (id: string, rect: { x: number; y: number; width: number; height: number }) => {
+      setSignatureFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...rect } : f)));
+    },
+    [],
+  );
 
   const emitFieldAdded = async (loc: FieldLocation) => {
     if (!lastHashRef.current) return;
@@ -290,64 +302,61 @@ export default function Sign() {
   const signerLabel = () =>
     stage.signer.email || stage.signer.name || "Anonymous signer";
 
-  const startDrawnSignature = () => {
-    if (!field) {
-      setError("Click on a page to place the signature field first.");
-      return;
-    }
+  const startDrawnSignature = (fieldId: string) => {
+    const target = signatureFields.find((f) => f.id === fieldId);
+    if (!target || target.signed) return;
     setError(null);
+    setSigningFieldId(fieldId);
     setShowPad(true);
   };
 
   const onDrawnSubmit = async (pngDataUrl: string, widthPx: number, heightPx: number) => {
     setShowPad(false);
-    setCapturedSig({ mode: "drawn", pngDataUrl, widthPx, heightPx });
-    await finalizeSignature({ mode: "drawn", pngDataUrl, widthPx, heightPx });
+    if (!signingFieldId) return;
+    await signOneField(signingFieldId, { mode: "drawn", pngDataUrl, widthPx, heightPx });
   };
 
-  const startPasskeySignature = async () => {
-    if (!field) {
-      setError("Click on a page to place the signature field first.");
-      return;
-    }
+  const startPasskeySignature = async (fieldId: string) => {
+    const target = signatureFields.find((f) => f.id === fieldId);
+    if (!target || target.signed) return;
     if (!originalHashRef.current) return;
     setError(null);
+    setSigningFieldId(fieldId);
     setBusyMsg("Waiting for your authenticator…");
     try {
       const sig = await signWithPasskey({
         documentHashHex: originalHashRef.current,
         userEmail: stage.signer.email || undefined,
         userName: stage.signer.name || undefined,
+        existingCredentialIdB64: credentialIdRef.current ?? undefined,
       });
-      setCapturedSig(sig);
-      await finalizeSignature(sig);
+      credentialIdRef.current = sig.credentialId;
+      await signOneField(fieldId, sig);
     } catch (err) {
       setBusyMsg(null);
+      setSigningFieldId(null);
       setError(errorText(err, "Passkey signing failed."));
     }
   };
 
-  const finalizeSignature = async (sig: CapturedSignature) => {
-    if (!bytes || !field || !originalHashRef.current || !lastHashRef.current) return;
-    setStage((s) => ({ ...s, step: "signing" }));
+  const signOneField = async (fieldId: string, sig: CapturedSignature) => {
+    const target = signatureFields.find((f) => f.id === fieldId);
+    if (!target || !lastHashRef.current) return;
     setBusyMsg("Stamping signature…");
     try {
-      // Emit the `signed` event against the pre-flatten document hash.
-      const signedReceipt = await stampEvent(
+      await stampEvent(
         buildEvent({
           documentId,
           eventType: "signed",
           documentHash: lastHashRef.current,
           parentHash: lastHashRef.current,
           eventIndex: eventIndexRef.current,
-          location: field,
+          location: target,
           signer: {
             method: sig.mode,
             credential_id: sig.mode === "webauthn" ? sig.credentialId : undefined,
             attestation:
-              sig.mode === "webauthn"
-                ? sig.signature ?? undefined
-                : undefined,
+              sig.mode === "webauthn" ? sig.signature ?? undefined : undefined,
             email: stage.signer.email || undefined,
             name: stage.signer.name || undefined,
           },
@@ -355,16 +364,35 @@ export default function Sign() {
       );
       eventIndexRef.current += 1;
 
-      // Flatten + add QR watermark. The resulting PDF is what the user downloads.
-      setBusyMsg("Finalizing PDF…");
+      setSignatureFields((prev) =>
+        prev.map((f) =>
+          f.id === fieldId
+            ? { ...f, signed: true, signature: sig, signerLabel: signerLabel(), signedAt: new Date().toISOString() }
+            : f,
+        ),
+      );
+    } catch (err) {
+      setError(errorText(err, "Could not stamp the signature."));
+    } finally {
+      setBusyMsg(null);
+      setSigningFieldId(null);
+    }
+  };
+
+  const finishAndPublish = async () => {
+    if (!bytes || !originalHashRef.current || !lastHashRef.current) return;
+    if (signatureFields.length === 0 || !signatureFields.every((f) => f.signed)) return;
+    setBusyMsg("Finalizing PDF…");
+    try {
       const flattened = await flattenSignedPdf({
         originalBytes: bytes,
-        signaturePng: sig.pngDataUrl,
-        location: field,
+        signatures: signatureFields.map((f) => ({
+          location: { page: f.page, x: f.x, y: f.y, width: f.width, height: f.height },
+          png: f.signature!.pngDataUrl,
+        })),
         textFields,
-        receiptId: signedReceipt.id,
         documentId,
-        verifyUrl: `${window.location.origin}/verify/${signedReceipt.id}`,
+        verifyUrl: `${window.location.origin}/verify/${documentId}`,
         signerLabel: signerLabel(),
       });
 
@@ -425,7 +453,7 @@ export default function Sign() {
     } catch (err) {
       setBusyMsg(null);
       setError(errorText(err, "Finalizing failed."));
-      setStage((s) => ({ ...s, step: "placing" }));
+      setStage((s) => ({ ...s, step: "review" }));
     }
   };
 
@@ -445,21 +473,30 @@ export default function Sign() {
 
   // --- Memoized field pixel positions ------------------------------------
 
-  const fieldOverlayForActive = useMemo(() => {
-    if (!field || !currentPage) return null;
-    if (field.page !== activePage) return null;
+  const signatureOverlaysForActive = useMemo(() => {
+    if (!currentPage) return null;
+    const onPage = signatureFields.filter((f) => f.page === activePage);
+    if (!onPage.length) return null;
     return (
-      <SignatureField
-        field={field}
-        pageWidthPx={currentPage.widthPx}
-        pageHeightPx={currentPage.heightPx}
-        pageWidthPt={currentPage.widthPt}
-        pageHeightPt={currentPage.heightPt}
-        signaturePngUrl={capturedSig?.pngDataUrl ?? null}
-        onClear={stage.step === "placing" ? () => setField(null) : undefined}
-      />
+      <>
+        {onPage.map((f) => (
+          <SignatureField
+            key={f.id}
+            field={f}
+            pageWidthPx={currentPage.widthPx}
+            pageHeightPx={currentPage.heightPx}
+            pageWidthPt={currentPage.widthPt}
+            pageHeightPt={currentPage.heightPt}
+            editable={stage.step === "placing"}
+            onChange={(rect) => updateSignatureField(f.id, rect)}
+            onSign={() => startDrawnSignature(f.id)}
+            onRemove={() => removeSignatureField(f.id)}
+          />
+        ))}
+      </>
     );
-  }, [field, currentPage, activePage, capturedSig, stage.step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signatureFields, currentPage, activePage, stage.step]);
 
   const textOverlaysForActive = useMemo(() => {
     if (!currentPage) return null;
@@ -513,13 +550,13 @@ export default function Sign() {
              the UI — you can always still see a filled-in text value even if
              a signature box overlaps it. Flatten renders them in the same
              under/over order in the final PDF. */}
-          {fieldOverlayForActive}
+          {signatureOverlaysForActive}
           {textOverlaysForActive}
         </PdfViewer>
       </div>
 
       <aside className="space-y-5 lg:sticky lg:top-20 h-fit">
-        <StepIndicator stage={stage.step} hasField={!!field} />
+        <StepIndicator stage={stage.step} />
 
         {stage.step === "placing" && (
           <div className="card p-5 space-y-4">
@@ -582,53 +619,112 @@ export default function Sign() {
               </div>
               <p className="text-xs text-text-muted">
                 {placementMode === "signature"
-                  ? field
-                    ? "Signature placed. Click the page to move it."
-                    : "Click on the document where you want to sign."
+                  ? "Click on the document where you want a signature. Add as many as you need."
                   : "Click where you want a text field (printed name, date, etc.). Add as many as you need."}
               </p>
-              {textFields.length > 0 && (
+              {(signatureFields.length > 0 || textFields.length > 0) && (
                 <p className="text-xs text-text-muted mt-1">
-                  {textFields.length} text field
-                  {textFields.length === 1 ? "" : "s"} on this document.
+                  {signatureFields.length} signature field{signatureFields.length === 1 ? "" : "s"},{" "}
+                  {textFields.length} text field{textFields.length === 1 ? "" : "s"} on this document.
                 </p>
               )}
             </div>
             <hr className="border-border" />
             <div>
               <div className="text-sm font-medium mb-2">Sign</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={startDrawnSignature}
-                  disabled={!field}
-                  className="btn-secondary justify-center disabled:opacity-40"
-                >
-                  Draw
-                </button>
-                <button
-                  type="button"
-                  onClick={startPasskeySignature}
-                  disabled={!field}
-                  className="btn-primary justify-center disabled:opacity-40"
-                >
-                  Passkey
-                </button>
-              </div>
-              {!field && (
-                <p className="text-xs text-text-muted mt-2">
-                  Place a signature field above first, then choose Draw or Passkey.
+              {signatureFields.length === 0 ? (
+                <p className="text-xs text-text-muted">
+                  Place a signature field above, then sign it here.
                 </p>
+              ) : (
+                <ul className="space-y-2">
+                  {signatureFields.map((f) => (
+                    <li key={f.id} className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-text-dim">Page {f.page}</span>
+                      {f.signed ? (
+                        <span className="chip-success">Signed</span>
+                      ) : (
+                        <span className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => startDrawnSignature(f.id)}
+                            disabled={!!busyMsg}
+                            className="btn-secondary text-xs px-2.5 py-1 disabled:opacity-40"
+                          >
+                            Draw
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startPasskeySignature(f.id)}
+                            disabled={!!busyMsg}
+                            className="btn-primary text-xs px-2.5 py-1 disabled:opacity-40"
+                          >
+                            Passkey
+                          </button>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </div>
         )}
 
-        {(stage.step === "signing" || stage.step === "stamping") && (
+        {stage.step === "placing" && (
+          <button
+            type="button"
+            onClick={() => setStage((s) => ({ ...s, step: "review" }))}
+            disabled={signatureFields.length === 0 || !signatureFields.every((f) => f.signed)}
+            className="btn-primary w-full justify-center disabled:opacity-40"
+          >
+            Review & Finish
+          </button>
+        )}
+
+        {stage.step === "review" && (
+          <div className="card p-5 space-y-4">
+            <div className="text-sm font-medium">Review before publishing</div>
+            <p className="text-xs text-text-muted">
+              Scroll the document to check every signature and text field.
+              Nothing is published until you click Finish &amp; Publish.
+            </p>
+            <ul className="space-y-1.5">
+              {signatureFields.map((f) => (
+                <li key={f.id} className="flex items-center justify-between text-xs">
+                  <span className="text-text-dim">Page {f.page}</span>
+                  <span className="chip-success">
+                    Signed{f.signerLabel ? ` — ${f.signerLabel}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setStage((s) => ({ ...s, step: "placing" }))}
+                disabled={!!busyMsg}
+                className="btn-secondary justify-center disabled:opacity-40"
+              >
+                Back to edit
+              </button>
+              <button
+                type="button"
+                onClick={finishAndPublish}
+                disabled={!!busyMsg}
+                className="btn-primary justify-center disabled:opacity-40"
+              >
+                Finish &amp; Publish
+              </button>
+            </div>
+          </div>
+        )}
+
+        {busyMsg && (
           <div className="card p-5 text-sm text-text-dim">
             <div className="flex items-center gap-2">
               <Spinner />
-              <span>{busyMsg ?? "Working…"}</span>
+              <span>{busyMsg}</span>
             </div>
           </div>
         )}
@@ -700,13 +796,13 @@ export default function Sign() {
   );
 }
 
-function StepIndicator({ stage, hasField }: { stage: Stage["step"]; hasField: boolean }) {
-  const steps: { key: Stage["step"] | "placed"; label: string }[] = [
-    { key: "placing", label: "Place field" },
-    { key: "placed", label: "Sign" },
+function StepIndicator({ stage }: { stage: Stage["step"] }) {
+  const steps: { key: Stage["step"]; label: string }[] = [
+    { key: "placing", label: "Place & sign" },
+    { key: "review", label: "Review" },
     { key: "finalized", label: "Done" },
   ];
-  const idx = stage === "finalized" ? 2 : hasField ? 1 : 0;
+  const idx = steps.findIndex((s) => s.key === stage);
   return (
     <ol className="flex items-center gap-2 text-xs">
       {steps.map((s, i) => (
