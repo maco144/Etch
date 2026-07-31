@@ -133,10 +133,20 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
     });
   }
 
-  // Audit watermark on the last page.
+  // Audit stamp on the last page — a compact badge in the bottom-right
+  // corner, not a full-width banner, so it doesn't cover the page's own
+  // content. The QR already encodes the verify URL, so the label text only
+  // needs a short, truncated summary next to it.
   const lastPage = pages[pages.length - 1];
   const { width: lpW } = lastPage.getSize();
-  const footerY = 36;
+
+  const STAMP_WIDTH = 200;
+  const STAMP_HEIGHT = 68;
+  const STAMP_MARGIN = 24;
+  const QR_SIZE = 40;
+
+  const stampX = lpW - STAMP_MARGIN - STAMP_WIDTH;
+  const stampY = STAMP_MARGIN;
 
   const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, {
     margin: 0,
@@ -146,43 +156,42 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
   const qrPng = await pdfDoc.embedPng(qrDataUrl);
 
   lastPage.drawRectangle({
-    x: 24,
-    y: footerY - 6,
-    width: lpW - 48,
-    height: 72,
+    x: stampX,
+    y: stampY,
+    width: STAMP_WIDTH,
+    height: STAMP_HEIGHT,
     color: rgb(0.97, 0.97, 1),
     borderColor: rgb(0.85, 0.83, 0.95),
     borderWidth: 0.5,
   });
 
-  lastPage.drawImage(qrPng, { x: 30, y: footerY, width: 60, height: 60 });
+  const qrX = stampX + 8;
+  const qrY = stampY + (STAMP_HEIGHT - QR_SIZE) / 2;
+  lastPage.drawImage(qrPng, { x: qrX, y: qrY, width: QR_SIZE, height: QR_SIZE });
+
+  const textX = qrX + QR_SIZE + 8;
+  const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
   lastPage.drawText("Verified via Etch Assent", {
-    x: 100,
-    y: footerY + 46,
-    size: 10,
+    x: textX,
+    y: stampY + STAMP_HEIGHT - 16,
+    size: 7,
     font,
     color: rgb(0.1, 0.1, 0.15),
   });
-  lastPage.drawText(`Document: ${args.documentId}`, {
-    x: 100,
-    y: footerY + 30,
-    size: 8,
+  lastPage.drawText(truncate(`Doc: ${args.documentId}`, 30), {
+    x: textX,
+    y: stampY + STAMP_HEIGHT - 30,
+    size: 6,
     font,
     color: rgb(0.3, 0.3, 0.4),
   });
-  lastPage.drawText(`Signer: ${args.signerLabel}`, {
-    x: 100,
-    y: footerY + 16,
-    size: 8,
+  lastPage.drawText(truncate(`Signer: ${args.signerLabel}`, 30), {
+    x: textX,
+    y: stampY + STAMP_HEIGHT - 42,
+    size: 6,
     font,
     color: rgb(0.3, 0.3, 0.4),
-  });
-  lastPage.drawText(args.verifyUrl, {
-    x: 100,
-    y: footerY + 2,
-    size: 7,
-    font,
-    color: rgb(0.35, 0.3, 0.55),
   });
 
   // Stash receipt metadata in the PDF info dictionary so an offline verifier
