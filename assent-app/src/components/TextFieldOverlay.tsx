@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { TextFieldValue } from "../lib/pdf";
+import { useDraggableResizable, type Corner } from "../hooks/useDraggableResizable";
 
 interface Props {
   field: TextFieldValue;
@@ -12,6 +13,14 @@ interface Props {
   onChange: (next: TextFieldValue) => void;
   onRemove: (id: string) => void;
 }
+
+const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
+const CORNER_STYLE: Record<Corner, React.CSSProperties> = {
+  nw: { left: -5, top: -5, cursor: "nwse-resize" },
+  ne: { right: -5, top: -5, cursor: "nesw-resize" },
+  sw: { left: -5, bottom: -5, cursor: "nesw-resize" },
+  se: { right: -5, bottom: -5, cursor: "nwse-resize" },
+};
 
 /**
  * Renders an editable text field as an absolutely-positioned input overlaid
@@ -44,8 +53,18 @@ export default function TextFieldOverlay({
   const height = field.height * scaleY;
   const fontPx = field.fontSize * scaleY;
 
+  const { bodyProps, handleProps } = useDraggableResizable({
+    rect: field,
+    pageWidthPt,
+    pageHeightPt,
+    pageWidthPx,
+    pageHeightPx,
+    disabled: !editable,
+    onChange: (rect) => onChange({ ...field, ...rect }),
+  });
+
   // Stop PDF click-to-place handler from firing when the user interacts with
-  // the field itself.
+  // the field itself (input, move grip, resize handles, or remove button).
   const swallow = (e: React.MouseEvent | React.KeyboardEvent) =>
     e.stopPropagation();
 
@@ -73,6 +92,24 @@ export default function TextFieldOverlay({
           lineHeight: 1.1,
         }}
       />
+      {editable && (
+        <div
+          {...bodyProps}
+          title="Drag to move"
+          className="touch-none pointer-events-auto absolute -top-6 left-0 text-xs text-text-dim hover:text-accent bg-bg/80 px-1 rounded cursor-move select-none"
+        >
+          ⠿ move
+        </div>
+      )}
+      {editable &&
+        CORNERS.map((c) => (
+          <div
+            key={c}
+            {...handleProps(c)}
+            className="absolute w-2.5 h-2.5 bg-accent border border-white rounded-sm pointer-events-auto touch-none"
+            style={CORNER_STYLE[c]}
+          />
+        ))}
       {editable && (
         <button
           type="button"
