@@ -17,6 +17,8 @@ export interface UseDraggableResizableArgs {
   pageHeightPx: number;
   minWidthPt?: number;
   minHeightPt?: number;
+  maxWidthPt?: number;
+  maxHeightPt?: number;
   disabled?: boolean;
   onChange: (next: Rect) => void;
   onClick?: () => void;
@@ -24,6 +26,8 @@ export interface UseDraggableResizableArgs {
 
 const DEFAULT_MIN_WIDTH_PT = 40;
 const DEFAULT_MIN_HEIGHT_PT = 20;
+const DEFAULT_MAX_WIDTH_PT = Infinity;
+const DEFAULT_MAX_HEIGHT_PT = Infinity;
 const CLICK_THRESHOLD_PX = 4;
 
 interface DragState {
@@ -48,6 +52,8 @@ export function useDraggableResizable({
   pageHeightPx,
   minWidthPt = DEFAULT_MIN_WIDTH_PT,
   minHeightPt = DEFAULT_MIN_HEIGHT_PT,
+  maxWidthPt = DEFAULT_MAX_WIDTH_PT,
+  maxHeightPt = DEFAULT_MAX_HEIGHT_PT,
   disabled = false,
   onChange,
   onClick,
@@ -127,32 +133,32 @@ export function useDraggableResizable({
 
       switch (drag.corner) {
         case "nw": {
-          const left = clamp(left0 + deltaXpt, 0, right0 - minWidthPt);
-          const top = clamp(top0 + deltaYpt, 0, bottom0 - minHeightPt);
+          const left = clamp(left0 + deltaXpt, Math.max(0, right0 - maxWidthPt), right0 - minWidthPt);
+          const top = clamp(top0 + deltaYpt, Math.max(0, bottom0 - maxHeightPt), bottom0 - minHeightPt);
           onChange({ x: left, y: top, width: right0 - left, height: bottom0 - top });
           break;
         }
         case "ne": {
-          const right = clamp(right0 + deltaXpt, left0 + minWidthPt, pageWidthPt);
-          const top = clamp(top0 + deltaYpt, 0, bottom0 - minHeightPt);
+          const right = clamp(right0 + deltaXpt, left0 + minWidthPt, Math.min(pageWidthPt, left0 + maxWidthPt));
+          const top = clamp(top0 + deltaYpt, Math.max(0, bottom0 - maxHeightPt), bottom0 - minHeightPt);
           onChange({ x: left0, y: top, width: right - left0, height: bottom0 - top });
           break;
         }
         case "sw": {
-          const left = clamp(left0 + deltaXpt, 0, right0 - minWidthPt);
-          const bottom = clamp(bottom0 + deltaYpt, top0 + minHeightPt, pageHeightPt);
+          const left = clamp(left0 + deltaXpt, Math.max(0, right0 - maxWidthPt), right0 - minWidthPt);
+          const bottom = clamp(bottom0 + deltaYpt, top0 + minHeightPt, Math.min(pageHeightPt, top0 + maxHeightPt));
           onChange({ x: left, y: top0, width: right0 - left, height: bottom - top0 });
           break;
         }
         case "se": {
-          const right = clamp(right0 + deltaXpt, left0 + minWidthPt, pageWidthPt);
-          const bottom = clamp(bottom0 + deltaYpt, top0 + minHeightPt, pageHeightPt);
+          const right = clamp(right0 + deltaXpt, left0 + minWidthPt, Math.min(pageWidthPt, left0 + maxWidthPt));
+          const bottom = clamp(bottom0 + deltaYpt, top0 + minHeightPt, Math.min(pageHeightPt, top0 + maxHeightPt));
           onChange({ x: left0, y: top0, width: right - left0, height: bottom - top0 });
           break;
         }
       }
     },
-    [scaleX, scaleY, pageWidthPt, pageHeightPt, minWidthPt, minHeightPt, onChange],
+    [scaleX, scaleY, pageWidthPt, pageHeightPt, minWidthPt, minHeightPt, maxWidthPt, maxHeightPt, onChange],
   );
 
   const onPointerUp = useCallback(

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import PdfViewer from "../components/PdfViewer";
 import SignatureField from "../components/SignatureField";
 import SignaturePad from "../components/SignaturePad";
+import StampFieldOverlay from "../components/StampFieldOverlay";
 import TextFieldOverlay from "../components/TextFieldOverlay";
 import {
   downloadDocument,
@@ -39,6 +40,10 @@ const TEXT_FIELD_WIDTH_PT = 180;
 const TEXT_FIELD_HEIGHT_PT = 22;
 const TEXT_FIELD_FONT_PT = 12;
 
+const DEFAULT_STAMP_WIDTH_PT = 200;
+const DEFAULT_STAMP_HEIGHT_PT = 68;
+const DEFAULT_STAMP_MARGIN_PT = 24;
+
 export default function Sign() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -69,6 +74,8 @@ export default function Sign() {
   const [signingFieldId, setSigningFieldId] = useState<string | null>(null);
   const credentialIdRef = useRef<string | null>(null);
   const [textFields, setTextFields] = useState<TextFieldValue[]>([]);
+  const [stampEnabled, setStampEnabled] = useState(true);
+  const [stampField, setStampField] = useState<FieldLocation | null>(null);
   const [placementMode, setPlacementMode] = useState<PlacementMode>("signature");
   const [autoFocusTextId, setAutoFocusTextId] = useState<string | null>(null);
 
@@ -277,6 +284,12 @@ export default function Sign() {
     },
     [],
   );
+  const updateStampField = useCallback(
+    (rect: { x: number; y: number; width: number; height: number }) => {
+      setStampField((prev) => (prev ? { ...prev, ...rect } : prev));
+    },
+    [],
+  );
 
   const emitFieldAdded = async (loc: FieldLocation) => {
     if (!lastHashRef.current) return;
@@ -394,6 +407,7 @@ export default function Sign() {
         documentId,
         verifyUrl: `${window.location.origin}/verify/${documentId}`,
         signerLabel: signerLabel(),
+        stamp: stampEnabled ? stampField : null,
       });
 
       const finalizedHash = await sha256(flattened);
@@ -522,6 +536,24 @@ export default function Sign() {
     );
   }, [textFields, currentPage, activePage, stage.step, autoFocusTextId, updateTextField, removeTextField]);
 
+  const stampOverlayForActive = useMemo(() => {
+    if (!stampEnabled || !stampField || !currentPage) return null;
+    if (stampField.page !== activePage) return null;
+    return (
+      <StampFieldOverlay
+        field={stampField}
+        pageWidthPx={currentPage.widthPx}
+        pageHeightPx={currentPage.heightPx}
+        pageWidthPt={currentPage.widthPt}
+        pageHeightPt={currentPage.heightPt}
+        editable={stage.step === "placing"}
+        verifyUrl={`${window.location.origin}/verify/${documentId}`}
+        onChange={updateStampField}
+        onRemove={() => setStampEnabled(false)}
+      />
+    );
+  }, [stampEnabled, stampField, currentPage, activePage, stage.step, documentId, updateStampField]);
+
   // --- Render ------------------------------------------------------------
 
   if (!bytes) {
@@ -543,7 +575,21 @@ export default function Sign() {
           bytes={bytes}
           activePage={activePage}
           onPageChange={setActivePage}
-          onDocumentReady={({ pages }) => setPagesByNumber(pages)}
+          onDocumentReady={({ numPages, pages }) => {
+            setPagesByNumber(pages);
+            setStampField((prev) => {
+              if (prev) return prev;
+              const lastPage = pages.get(numPages);
+              if (!lastPage) return prev;
+              return {
+                page: numPages,
+                x: lastPage.widthPt - DEFAULT_STAMP_MARGIN_PT - DEFAULT_STAMP_WIDTH_PT,
+                y: lastPage.heightPt - DEFAULT_STAMP_MARGIN_PT - DEFAULT_STAMP_HEIGHT_PT,
+                width: DEFAULT_STAMP_WIDTH_PT,
+                height: DEFAULT_STAMP_HEIGHT_PT,
+              };
+            });
+          }}
           onPageClick={stage.step === "placing" ? handlePlace : undefined}
         >
           {/* Signature placeholder first so it sits UNDER any text fields in
@@ -552,6 +598,7 @@ export default function Sign() {
              under/over order in the final PDF. */}
           {signatureOverlaysForActive}
           {textOverlaysForActive}
+          {stampOverlayForActive}
         </PdfViewer>
       </div>
 
@@ -667,6 +714,22 @@ export default function Sign() {
                   ))}
                 </ul>
               )}
+            </div>
+            <hr className="border-border" />
+            <div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={stampEnabled}
+                  onChange={(e) => setStampEnabled(e.target.checked)}
+                  className="accent-accent"
+                />
+                Include verification stamp
+              </label>
+              <p className="text-xs text-text-muted mt-1">
+                A QR code linking to the verify page, stamped on the last
+                page. Drag or resize it on the document, or turn it off here.
+              </p>
             </div>
           </div>
         )}
