@@ -73,7 +73,7 @@ etch/
 - `POST /v1/proof/{proof_id}/verify` — Verify content integrity
 
 ### /v1/records/* (SoR API — namespace-isolated, API key auth)
-- `POST /v1/records` — Create record receipt
+- `POST /v1/records` — Create record receipt (`if_changed: true` + `record.id` → append only when the content hash changed; unchanged content returns the existing receipt with `deduplicated: true`)
 - `GET /v1/records` — List/filter with cursor pagination
 - `GET /v1/records/{record_id}` — Retrieve receipt
 - `GET /v1/records/{record_id}/proof` — Self-contained inclusion proof

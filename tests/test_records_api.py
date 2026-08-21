@@ -150,6 +150,100 @@ class TestCreateRecord:
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/records — if_changed
+# ---------------------------------------------------------------------------
+
+class TestIfChanged:
+
+    async def test_unchanged_content_is_deduplicated(self, client: EtchClient):
+        data = {"target": "ENSG00000141510", "score": 0.91}
+        first = await client.records.create(
+            data=data, record_type="opentargets.association", record_id="assoc-1",
+        )
+        second = await client.records.create(
+            data=data, record_type="opentargets.association", record_id="assoc-1",
+            if_changed=True,
+        )
+        assert second.deduplicated is True
+        assert second.id == first.id
+        assert second.chain_position == first.chain_position
+        assert second.mmr_root == first.mmr_root
+
+    async def test_dedup_does_not_grow_the_chain(self, client: EtchClient):
+        data = {"target": "ENSG1", "score": 0.5}
+        await client.records.create(data=data, record_id="assoc-2", if_changed=True)
+        before = await client.chain.root()
+        for _ in range(5):
+            await client.records.create(data=data, record_id="assoc-2", if_changed=True)
+        after = await client.chain.root()
+        assert after.chain_depth == before.chain_depth
+        assert after.mmr_root == before.mmr_root
+
+    async def test_changed_content_appends(self, client: EtchClient):
+        first = await client.records.create(
+            data={"score": 0.5}, record_id="assoc-3", if_changed=True,
+        )
+        second = await client.records.create(
+            data={"score": 0.7}, record_id="assoc-3", if_changed=True,
+        )
+        assert second.deduplicated is False
+        assert second.id != first.id
+        assert second.chain_position == first.chain_position + 1
+
+    async def test_first_write_appends(self, client: EtchClient):
+        receipt = await client.records.create(
+            data={"score": 0.5}, record_id="assoc-4", if_changed=True,
+        )
+        assert receipt.deduplicated is False
+        assert receipt.chain_position == 0
+
+    async def test_default_still_appends_unchanged_content(self, client: EtchClient):
+        """Re-attestation stays the default: no silent deduplication."""
+        data = {"score": 0.5}
+        first = await client.records.create(data=data, record_id="assoc-5")
+        second = await client.records.create(data=data, record_id="assoc-5")
+        assert second.deduplicated is False
+        assert second.id != first.id
+        assert second.chain_position == first.chain_position + 1
+
+    async def test_no_external_id_always_appends(self, client: EtchClient):
+        data = {"score": 0.5}
+        first = await client.records.create(data=data, if_changed=True)
+        second = await client.records.create(data=data, if_changed=True)
+        assert second.deduplicated is False
+        assert second.chain_position == first.chain_position + 1
+
+    async def test_same_external_id_different_type_appends(self, client: EtchClient):
+        data = {"score": 0.5}
+        first = await client.records.create(
+            data=data, record_type="a.thing", record_id="shared-id", if_changed=True,
+        )
+        second = await client.records.create(
+            data=data, record_type="b.thing", record_id="shared-id", if_changed=True,
+        )
+        assert second.deduplicated is False
+        assert second.chain_position == first.chain_position + 1
+
+    async def test_deduplicated_receipt_still_verifies(self, client: EtchClient):
+        data = {"score": 0.5}
+        await client.records.create(data=data, record_id="assoc-6", if_changed=True)
+        dedup = await client.records.create(data=data, record_id="assoc-6", if_changed=True)
+        result = await client.records.verify(dedup.id, data=data)
+        assert result.verified is True
+
+    async def test_dedup_returns_original_metadata(self, client: EtchClient):
+        data = {"score": 0.5}
+        await client.records.create(
+            data=data, record_id="assoc-7", metadata={"run": "first"}, if_changed=True,
+        )
+        dedup = await client.records.create(
+            data=data, record_id="assoc-7", metadata={"run": "second"}, if_changed=True,
+        )
+        assert dedup.deduplicated is True
+        assert dedup.metadata == {"run": "first"}
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/records/{record_id}
 # ---------------------------------------------------------------------------
 

@@ -53,6 +53,8 @@ class RecordReceipt:
     record_type: Optional[str] = None
     external_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    deduplicated: bool = False
+    """True when if_changed matched an existing receipt and nothing was appended."""
 
 
 @dataclass
@@ -217,10 +219,16 @@ class RecordsResource:
         record_type: str | None = None,
         record_id: str | None = None,
         metadata: Dict[str, Any] | None = None,
+        if_changed: bool = False,
     ) -> RecordReceipt:
         """
         Commit a record to the Etch chain.
         Data is hashed client-side — only the hash is transmitted.
+
+        Set if_changed=True (with record_id) to append only when the content
+        changed: if the latest record for that ID has the same hash, the
+        existing receipt comes back with .deduplicated == True and the chain
+        does not grow.
         """
         if data is not None:
             computed_hash = _hash_data(data)
@@ -238,6 +246,8 @@ class RecordsResource:
                 body["record"] = {"type": record_type, "id": record_id}
         if metadata:
             body["metadata"] = metadata
+        if if_changed:
+            body["if_changed"] = True
 
         # Client-side privacy: send hash instead of raw data
         if data is not None:
@@ -260,6 +270,7 @@ class RecordsResource:
             record_type=d.get("record_type"),
             external_id=d.get("external_id"),
             metadata=d.get("metadata"),
+            deduplicated=bool(d.get("deduplicated", False)),
         )
 
     async def retrieve(self, record_id: str) -> RecordReceipt:

@@ -49,6 +49,15 @@ class CreateRecordRequest(BaseModel):
     record: Optional[RecordData] = Field(None, description="Record to commit")
     record_hash: Optional[str] = Field(None, description="Pre-computed SHA-256 hex (64 chars) — use when data shouldn't leave your network")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata stored alongside the hash (actor, source, action)")
+    if_changed: bool = Field(
+        False,
+        description=(
+            "Append only if the content changed. When true and record.id is set, the latest record "
+            "for this (namespace, external_id) is looked up first: if its record_hash matches, the "
+            "existing receipt is returned with deduplicated=true and nothing is appended to the chain. "
+            "Default false — a re-registration of unchanged content is a valid timestamped re-attestation."
+        ),
+    )
 
 
 class RecordReceipt(BaseModel):
@@ -65,6 +74,10 @@ class RecordReceipt(BaseModel):
     external_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     verification_url: Optional[str] = None
+    deduplicated: bool = Field(
+        False,
+        description="True when if_changed suppressed an append and this is a pre-existing receipt",
+    )
 
 
 class InclusionProofResponse(BaseModel):
@@ -124,6 +137,55 @@ def _hash_record_data(data: Dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def _receipt_from_row(row: RecordEntry, deduplicated: bool = False) -> RecordReceipt:
+    """Build a receipt from a persisted record row."""
+    return RecordReceipt(
+        id=row.record_id,
+        record_hash=row.record_hash,
+        leaf_hash=row.leaf_hash,
+        mmr_root=row.mmr_root,
+        chain_position=row.leaf_index,
+        chain_depth=row.chain_depth,
+        timestamp=row.created_at_exact or row.created_at.timestamp(),
+        namespace=row.namespace_id,
+        record_type=row.record_type,
+        external_id=row.external_id,
+        metadata=json.loads(row.metadata_json) if row.metadata_json else None,
+        deduplicated=deduplicated,
+    )
+
+
+async def _latest_record_for_external_id(
+    namespace_id: str,
+    external_id: str,
+    record_type: Optional[str],
+) -> Optional[RecordEntry]:
+    """
+    Latest record for (namespace_id, external_id), newest chain position first.
+    Served by idx_records_ns_ext. Returns None on any DB error so that a lookup
+    failure degrades to a normal append rather than dropping the write.
+    """
+    query = (
+        select(RecordEntry)
+        .where(
+            RecordEntry.namespace_id == namespace_id,
+            RecordEntry.external_id == external_id,
+        )
+        .order_by(RecordEntry.leaf_index.desc())
+        .limit(1)
+    )
+    if record_type:
+        query = query.where(RecordEntry.record_type == record_type)
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(query)
+            return result.scalars().first()
+    except Exception as exc:
+        logger.warning(f"[Etch] if_changed lookup failed, appending anyway: {exc}")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -146,6 +208,18 @@ async def create_record(body: CreateRecordRequest, auth: AuthContext = Depends(r
 
     record_type = body.record.type if body.record else None
     external_id = body.record.id if body.record else None
+
+    # if_changed: one indexed lookup before the write. If the latest record for
+    # this external ID already commits the same hash, hand back its receipt and
+    # append nothing — the chain only grows when the content actually changed.
+    if body.if_changed and external_id:
+        latest = await _latest_record_for_external_id(auth.namespace_id, external_id, record_type)
+        if latest is not None and latest.record_hash == record_hash:
+            logger.info(
+                f"[Etch] Record {latest.record_id} deduplicated "
+                f"(if_changed, {auth.namespace_id}/{external_id} unchanged)"
+            )
+            return _receipt_from_row(latest, deduplicated=True)
 
     # Build chain payload
     payload = {
@@ -268,22 +342,7 @@ async def list_records(
         has_more = len(rows) > limit
         rows = rows[:limit]
 
-        data = []
-        for r in rows:
-            metadata = json.loads(r.metadata_json) if r.metadata_json else None
-            data.append(RecordReceipt(
-                id=r.record_id,
-                record_hash=r.record_hash,
-                leaf_hash=r.leaf_hash,
-                mmr_root=r.mmr_root,
-                chain_position=r.leaf_index,
-                chain_depth=r.chain_depth,
-                timestamp=r.created_at_exact or r.created_at.timestamp(),
-                namespace=r.namespace_id,
-                record_type=r.record_type,
-                external_id=r.external_id,
-                metadata=metadata,
-            ))
+        data = [_receipt_from_row(r) for r in rows]
 
         return RecordListResponse(data=data, has_more=has_more, total=total)
 
@@ -365,21 +424,7 @@ async def get_record(record_id: str, auth: AuthContext = Depends(require_auth)) 
     if not record:
         raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
 
-    metadata = json.loads(record.metadata_json) if record.metadata_json else None
-
-    return RecordReceipt(
-        id=record.record_id,
-        record_hash=record.record_hash,
-        leaf_hash=record.leaf_hash,
-        mmr_root=record.mmr_root,
-        chain_position=record.leaf_index,
-        chain_depth=record.chain_depth,
-        timestamp=record.created_at_exact or record.created_at.timestamp(),
-        namespace=record.namespace_id,
-        record_type=record.record_type,
-        external_id=record.external_id,
-        metadata=metadata,
-    )
+    return _receipt_from_row(record)
 
 
 @records_router.post("/v1/records/verify", summary="Verify record against chain")

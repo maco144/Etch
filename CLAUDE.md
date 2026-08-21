@@ -41,6 +41,7 @@ ruff check etch/ tests/
 - Persist hook pattern: chain calls sync hook after append (outside lock)
 - API tests use httpx ASGITransport with mocked DB layer
 - `asyncio_mode = "auto"` in pytest config
+- The chain is append-only and every root hashes the previous one — nothing is ever deleted or compacted, so write-amplification is permanent. A write-only API invites clients to re-register their whole working set every run; `POST /v1/records` takes `if_changed: true` (with `record.id`) to make that cheap: one indexed lookup on `idx_records_ns_ext`, and an unchanged `record_hash` returns the existing receipt with `deduplicated: true` instead of appending. It is opt-in on purpose — re-registering unchanged content is a legitimate timestamped re-attestation, so the default must never silently deduplicate.
 
 ## Environment Variables
 
