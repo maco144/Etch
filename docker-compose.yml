@@ -11,7 +11,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8101:8100"
+      - "127.0.0.1:8101:8100"
 
   postgres:
     image: postgres:16-alpine
