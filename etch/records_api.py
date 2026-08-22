@@ -53,7 +53,7 @@ class CreateRecordRequest(BaseModel):
         False,
         description=(
             "Append only if the content changed. When true and record.id is set, the latest record "
-            "for this (namespace, external_id) is looked up first: if its record_hash matches, the "
+            "for this (namespace, external_id, record_type) is looked up first: if its record_hash matches, the "
             "existing receipt is returned with deduplicated=true and nothing is appended to the chain. "
             "Default false — a re-registration of unchanged content is a valid timestamped re-attestation."
         ),
@@ -161,9 +161,10 @@ async def _latest_record_for_external_id(
     record_type: Optional[str],
 ) -> Optional[RecordEntry]:
     """
-    Latest record for (namespace_id, external_id), newest chain position first.
-    Served by idx_records_ns_ext. Returns None on any DB error so that a lookup
-    failure degrades to a normal append rather than dropping the write.
+    Latest record for (namespace_id, external_id, record_type), newest chain
+    position first. Served by idx_records_ns_ext_leaf. Returns None on any DB
+    error so that a lookup failure degrades to a normal append rather than
+    dropping the write.
     """
     query = (
         select(RecordEntry)

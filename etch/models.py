@@ -117,6 +117,13 @@ class RecordEntry(Base):
         Index("idx_records_ns_type", "namespace_id", "record_type"),
         Index("idx_records_ns_ext", "namespace_id", "external_id"),
         Index("idx_records_ns_leaf", "namespace_id", "leaf_index"),
+        # Serves the if_changed lookup: newest record for (namespace, external_id).
+        # Without leaf_index in the index, Postgres abandons idx_records_ns_ext for a
+        # backward scan of idx_records_ns_leaf and filters — cheap while an external ID
+        # is near the chain head, linear in the gap once it stops changing. Ascending is
+        # deliberate: the leading columns are equality-constrained, so a backward scan
+        # satisfies ORDER BY leaf_index DESC, and ASC stays portable to SQLite.
+        Index("idx_records_ns_ext_leaf", "namespace_id", "external_id", "leaf_index"),
     )
 
 
