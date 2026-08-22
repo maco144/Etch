@@ -91,6 +91,17 @@ class ChainState:
     timestamp: float
 
 
+@dataclass
+class RecordsStats:
+    """Append vs dedup counters for a namespace."""
+    namespace: str
+    appended: int
+    deduplicated: int
+    dedup_rate: float
+    records_total: int
+    since: float
+
+
 # ---------------------------------------------------------------------------
 # Response models — v1 (legacy, kept for backward compat)
 # ---------------------------------------------------------------------------
@@ -318,6 +329,25 @@ class RecordsResource:
             verified=d["verified"],
             verified_at=d["verified_at"],
             original_timestamp=d["original_timestamp"],
+        )
+
+    async def stats(self) -> RecordsStats:
+        """
+        How much of this namespace's write traffic reached the chain.
+
+        appended/deduplicated count this server process only; records_total comes
+        from the database and survives restarts.
+        """
+        resp = await self._http.get("/v1/records/stats", headers=self._headers())
+        _raise_for_status(resp)
+        d = resp.json()
+        return RecordsStats(
+            namespace=d["namespace"],
+            appended=d["appended"],
+            deduplicated=d["deduplicated"],
+            dedup_rate=d["dedup_rate"],
+            records_total=d["records_total"],
+            since=d["since"],
         )
 
     async def proof(self, record_id: str) -> InclusionProof:

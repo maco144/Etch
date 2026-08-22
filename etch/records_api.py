@@ -8,6 +8,7 @@ at a specific time.
 Endpoints:
     POST /v1/records                - Create a record receipt
     GET  /v1/records                - List/filter records (cursor pagination)
+    GET  /v1/records/stats          - Append vs dedup counters for the namespace
     GET  /v1/records/{record_id}    - Retrieve receipt by record_id
     GET  /v1/records/{record_id}/proof - Self-contained inclusion proof
     POST /v1/records/verify         - Verify record against chain
@@ -18,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -33,6 +35,40 @@ from .models import RecordEntry, generate_record_id
 logger = logging.getLogger(__name__)
 
 records_router = APIRouter(tags=["Etch Records"])
+
+
+# ---------------------------------------------------------------------------
+# Write counters
+#
+# A dedup writes no row, so it leaves no trace anywhere else: the whole value of
+# if_changed is how often it fires, and the row count can only ever show what got
+# through. These are per-process — they reset when the container restarts — so
+# they are reported alongside records_total, which is durable and comes from the DB.
+# ---------------------------------------------------------------------------
+
+_stats_lock = threading.Lock()
+_stats: Dict[str, Dict[str, int]] = {}
+_stats_since: float = time.time()
+
+
+def _bump(namespace_id: str, key: str) -> None:
+    with _stats_lock:
+        counts = _stats.setdefault(namespace_id, {"appended": 0, "deduplicated": 0})
+        counts[key] += 1
+
+
+def _read_stats(namespace_id: str) -> Dict[str, int]:
+    with _stats_lock:
+        counts = _stats.get(namespace_id, {"appended": 0, "deduplicated": 0})
+        return dict(counts)
+
+
+def _reset_stats() -> None:
+    """Test hook — clears the counters and restarts the window."""
+    global _stats_since
+    with _stats_lock:
+        _stats.clear()
+        _stats_since = time.time()
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +151,16 @@ class ChainStateResponse(BaseModel):
     chain_depth: int
     namespace: str
     timestamp: float
+
+
+class RecordsStatsResponse(BaseModel):
+    object: str = "records_stats"
+    namespace: str
+    appended: int = Field(description="Chain appends since this process started")
+    deduplicated: int = Field(description="if_changed calls that matched and appended nothing")
+    dedup_rate: float = Field(description="deduplicated / (appended + deduplicated), 0.0 when idle")
+    records_total: int = Field(description="Rows on the chain for this namespace — durable, from the DB")
+    since: float = Field(description="Unix time the in-process counters last started from")
 
 
 class RecordListResponse(BaseModel):
@@ -216,6 +262,7 @@ async def create_record(body: CreateRecordRequest, auth: AuthContext = Depends(r
     if body.if_changed and external_id:
         latest = await _latest_record_for_external_id(auth.namespace_id, external_id, record_type)
         if latest is not None and latest.record_hash == record_hash:
+            _bump(auth.namespace_id, "deduplicated")
             logger.info(
                 f"[Etch] Record {latest.record_id} deduplicated "
                 f"(if_changed, {auth.namespace_id}/{external_id} unchanged)"
@@ -265,6 +312,7 @@ async def create_record(body: CreateRecordRequest, auth: AuthContext = Depends(r
     except Exception as exc:
         logger.warning(f"[Etch] Record persist failed: {exc}")
 
+    _bump(auth.namespace_id, "appended")
     logger.info(f"[Etch] Record {rec_id} committed to {auth.namespace_id} chain_pos={entry.leaf_index}")
 
     metadata = body.metadata if body.metadata else None
@@ -352,6 +400,39 @@ async def list_records(
     except Exception as exc:
         logger.warning(f"[Etch] List records failed: {exc}")
         raise HTTPException(status_code=503, detail="Database unavailable")
+
+
+@records_router.get("/v1/records/stats", summary="Append vs dedup counters for this namespace")
+async def records_stats(auth: AuthContext = Depends(require_auth)) -> RecordsStatsResponse:
+    """
+    How much of this namespace's write traffic actually reached the chain.
+
+    Declared before /v1/records/{record_id} on purpose — FastAPI matches routes in
+    declaration order, and "stats" is a valid record_id shape.
+    """
+    counts = _read_stats(auth.namespace_id)
+    appended = counts["appended"]
+    deduplicated = counts["deduplicated"]
+    total_writes = appended + deduplicated
+
+    records_total = 0
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(func.count(RecordEntry.id)).where(RecordEntry.namespace_id == auth.namespace_id)
+            )
+            records_total = result.scalar() or 0
+    except Exception as exc:
+        logger.warning(f"[Etch] records_total lookup failed: {exc}")
+
+    return RecordsStatsResponse(
+        namespace=auth.namespace_id,
+        appended=appended,
+        deduplicated=deduplicated,
+        dedup_rate=round(deduplicated / total_writes, 4) if total_writes else 0.0,
+        records_total=records_total,
+        since=_stats_since,
+    )
 
 
 @records_router.get("/v1/records/{record_id}/proof", summary="Get self-contained inclusion proof")

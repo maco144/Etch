@@ -49,6 +49,10 @@ def _make_app():
     orig_manager = cm_module._manager
     cm_module._manager = None
 
+    # Reset the per-process write counters so each test sees only its own writes
+    import etch.records_api as records_api_module
+    records_api_module._reset_stats()
+
     from etch.server import app
 
     return app, engine, {
@@ -441,3 +445,83 @@ class TestPrivacy:
         data = {"secret": "password123", "ssn": "123-45-6789"}
         receipt = await client.records.create(data=data)
         assert receipt.record_hash == _hash_data(data)
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/records/stats — dedup observability
+# ---------------------------------------------------------------------------
+
+class TestRecordsStats:
+
+    async def test_counts_appends(self, client: EtchClient):
+        for i in range(3):
+            await client.records.create(data={"n": i}, record_id=f"r-{i}")
+        stats = await client.records.stats()
+        assert stats.appended == 3
+        assert stats.deduplicated == 0
+        assert stats.records_total == 3
+
+    async def test_counts_dedups_separately(self, client: EtchClient):
+        data = {"target": "ENSG1", "score": 0.5}
+        await client.records.create(data=data, record_id="assoc-1", if_changed=True)
+        for _ in range(2):
+            await client.records.create(data=data, record_id="assoc-1", if_changed=True)
+        stats = await client.records.stats()
+        assert stats.appended == 1
+        assert stats.deduplicated == 2
+        # The chain only grew once; the durable row count agrees with appended.
+        assert stats.records_total == 1
+
+    async def test_dedup_rate(self, client: EtchClient):
+        data = {"a": 1}
+        await client.records.create(data=data, record_id="x", if_changed=True)
+        await client.records.create(data=data, record_id="x", if_changed=True)
+        stats = await client.records.stats()
+        assert stats.dedup_rate == 0.5
+
+    async def test_dedup_rate_is_zero_when_nothing_written(self, client: EtchClient):
+        stats = await client.records.stats()
+        assert stats.appended == 0
+        assert stats.deduplicated == 0
+        assert stats.dedup_rate == 0.0
+        assert stats.records_total == 0
+
+    async def test_route_not_shadowed_by_record_id(self, client: EtchClient):
+        """/v1/records/stats must not be parsed as a record_id lookup."""
+        await client.records.create(data={"a": 1})
+        resp = await client._client.get(
+            "/v1/records/stats",
+            headers=client._auth_headers(),
+        )
+        assert resp.status_code == 200
+        assert "appended" in resp.json()
+
+    async def test_is_namespace_scoped(self, client: EtchClient):
+        """Another tenant's writes must not show up in this namespace's counters."""
+        other_key = await _bootstrap_ns("Other Corp", ns_id="ns_other")
+        other = EtchClient(httpx_client=client._client, api_key=other_key)
+
+        await client.records.create(data={"a": 1}, record_id="mine")
+        await other.records.create(data={"b": 2}, record_id="theirs")
+        await other.records.create(data={"b": 2}, record_id="theirs", if_changed=True)
+
+        mine = await client.records.stats()
+        theirs = await other.records.stats()
+
+        assert (mine.appended, mine.deduplicated) == (1, 0)
+        assert (theirs.appended, theirs.deduplicated) == (1, 1)
+        assert mine.namespace == "ns_test"
+        assert theirs.namespace == "ns_other"
+
+    async def test_requires_auth(self, client: EtchClient):
+        resp = await client._client.get("/v1/records/stats")
+        assert resp.status_code in (401, 422)
+
+    async def test_dedup_is_logged(self, client: EtchClient, caplog):
+        """The dedup event must reach the log — it is invisible in the row count."""
+        import logging
+        data = {"a": 1}
+        await client.records.create(data=data, record_id="logged", if_changed=True)
+        with caplog.at_level(logging.INFO, logger="etch.records_api"):
+            await client.records.create(data=data, record_id="logged", if_changed=True)
+        assert any("deduplicated" in r.message for r in caplog.records)

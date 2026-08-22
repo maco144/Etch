@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -26,6 +27,28 @@ from .watermark_api import watermark_router
 from .db import create_tables
 
 logger = logging.getLogger(__name__)
+
+
+def configure_logging() -> None:
+    """
+    Give the etch loggers a handler.
+
+    Uvicorn configures only its own loggers, so without this every logger.info in
+    this package is dropped — including the dedup line, which is the only trace a
+    suppressed write leaves anywhere. Level via ETCH_LOG_LEVEL (default INFO).
+    Skipped if the root logger already has handlers, so an embedding app keeps
+    its own configuration.
+    """
+    level = os.getenv("ETCH_LOG_LEVEL", "INFO").upper()
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
+    logging.getLogger("etch").setLevel(level)
+
+
+configure_logging()
 
 
 @asynccontextmanager
