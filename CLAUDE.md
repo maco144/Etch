@@ -28,11 +28,16 @@ ruff check etch/ tests/
 - **api.py** — FastAPI router at `/v1/proof/*` (legacy: register, verify, lookup, batch, stats)
 - **records_api.py** — FastAPI router at `/v1/records/*` (SoR API, namespace-isolated, API key auth)
 - **c2pa.py** — FastAPI router at `/v1/c2pa/*` (C2PA manifest bridge for EU AI Act compliance)
+- **assent_api.py** — FastAPI router at `/v1/assent/*` (anonymous PDF-signer event chain)
+- **assent_docs_api.py** — FastAPI router at `/v1/assent/document/*` (E2EE ciphertext store)
+- **dooh_api.py** — FastAPI router at `/v1/dooh/*` (playback receipts); SDK in **dooh/**
+- **glyph.py / glyph_api.py** — Shortcodes + bar sigils; public resolver at `/g/{shortcode}`
+- **watermark/ + watermark_api.py** — `etchmark` audio watermark; embed/extract endpoints
 - **auth.py** — API key authentication (`etch_{mode}_sk_{token}`), namespace bootstrap
 - **models.py** — SQLAlchemy ORM: `ProofRecord`, `Namespace`, `ApiKey`, `RecordEntry` (4 tables)
 - **db.py** — Async DB sessions (SQLite default, PostgreSQL via `ETCH_DATABASE_URL`)
 - **sdk.py** — Async Python SDK (`EtchClient`) with legacy + v2 API support
-- **server.py** — FastAPI app with lifespan (auto-creates tables on startup)
+- **server.py** — FastAPI app with lifespan (auto-creates tables, bootstraps namespaces, configures `etch` loggers)
 
 ## Key Patterns
 
@@ -46,6 +51,21 @@ ruff check etch/ tests/
 ## Environment Variables
 
 - `ETCH_DATABASE_URL` or `DATABASE_URL` — DB connection string (default: `sqlite+aiosqlite:///./etch.db`)
+- `ETCH_LOG_LEVEL` — Level for the `etch` loggers (default: `INFO`)
+- `ETCH_ASSENT_DOC_DIR` — Assent ciphertext storage (default: `/var/etch/assent-documents`)
+- `ETCH_ASSENT_IP_SALT` — Salt for hashed client IPs in Assent rate limiting
+
+## Documentation Map
+
+- **README.md** — public front door: full endpoint tables, auth, configuration
+- **CHANGELOG.md** — Keep a Changelog; `v0.2.0` is tagged, everything since is Unreleased
+- **PROJECT_INDEX.md** — repo map, module-by-module; read before exploring
+- **docs/ETCH_ASSENT_SPEC.md** — Assent; sections marked *as built* are authoritative,
+  *planned* ones may not exist yet
+- **docs/dooh-spec.md** — DOOH protocol; the trust model section is non-negotiable context
+- **etch/dooh/README.md** — DOOH SDK quickstart
+- **assent-app/README.md** — Assent frontend build + architecture
+- **docs/RELEASING.md** — release procedure (PyPI via OIDC)
 
 ## Conventions
 
