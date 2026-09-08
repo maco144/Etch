@@ -322,6 +322,7 @@ footer {
     <a href="#" class="nav-logo">etch</a>
     <div class="nav-links">
       <a href="#how-it-works">How It Works</a>
+      <a href="#products">Products</a>
       <a href="#quickstart">Quick Start</a>
       <a href="#api">API</a>
       <a href="#pricing">Pricing</a>
@@ -432,13 +433,59 @@ footer {
       <div class="feature fade-in">
         <div class="feature-icon">{}</div>
         <h3>Simple API</h3>
-        <p>Six endpoints. One HTTP call to register. Python SDK with async support. Integrate in minutes.</p>
+        <p>One HTTP call to register. Everything else is a receipt, a lookup, or a proof. Python SDK with async support. Integrate in minutes.</p>
       </div>
       <div class="feature fade-in">
         <div class="feature-icon">&gt;_</div>
         <h3>Open source</h3>
         <p>Rising Sun License. Free for personal use, education, and research. Commercial terms are simple and transparent.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- Products -->
+<section id="products">
+  <div class="container">
+    <div class="section-label">Built on Etch</div>
+    <h2 class="section-title">One primitive, four products</h2>
+    <p class="section-desc">The chain is the same in every case. What changes is what gets anchored to it.</p>
+    <div class="features">
+
+      <div class="feature fade-in">
+        <div class="feature-icon">&#9998;</div>
+        <h3>Assent &mdash; PDF signing</h3>
+        <p>DocuSign, except the PDF never leaves your browser. Sign locally or send to a
+        counterparty end-to-end encrypted; the audit trail is a public, offline-verifiable
+        chain. No account, no upload, no vendor to outlive.
+        <a href="/assent/">Open Assent &rarr;</a></p>
+      </div>
+
+      <div class="feature fade-in">
+        <div class="feature-icon">&#9635;</div>
+        <h3>DOOH playback receipts</h3>
+        <p>Digital out-of-home advertising is measured, never proven. Bilaterally-signed
+        receipts &mdash; player and venue both sign &mdash; anchored in an advertiser-owned
+        namespace, so neither side can forge a play on its own.
+        <a href="https://github.com/maco144/Etch/blob/main/docs/dooh-spec.md">Read the spec &rarr;</a></p>
+      </div>
+
+      <div class="feature fade-in">
+        <div class="feature-icon">&#9646;&#9647;</div>
+        <h3>Glyph &mdash; shortcodes &amp; sigils</h3>
+        <p>Eight characters a human can type, carrying a proof ID and a checksum over the
+        content hash &mdash; so a typo or a fabrication is caught before anything is looked up.
+        Renders as a scannable bar sigil with a public resolver page.</p>
+      </div>
+
+      <div class="feature fade-in">
+        <div class="feature-icon">&#9834;</div>
+        <h3>etchmark &mdash; audio watermark</h3>
+        <p>An inaudible spread-spectrum watermark carrying an Etch shortcode, designed to
+        survive the lossy re-encode a track goes through on its way to distribution. A pointer
+        to the record, never a proof in itself &mdash; the chain stays the source of truth.</p>
+      </div>
+
     </div>
   </div>
 </section>
@@ -495,6 +542,83 @@ footer {
             <td class="check">&#10003;</td>
             <td class="cross">&#10007;</td>
             <td class="check">&#10003;</td>
+          </tr>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">ASSENT &mdash; PDF SIGNING (ANONYMOUS)</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/assent/stamp</code></td>
+            <td>Commit a signing event to the public chain</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/assent/chain/{doc_id}</code></td>
+            <td>Full event chain with integrity check</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/assent/verify</code></td>
+            <td>Find events by document hash</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/assent/document</code></td>
+            <td>Upload an end-to-end encrypted document</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">PUT</span></td>
+            <td><code>/v1/assent/document/{id}</code></td>
+            <td>Replace with the signed version</td>
+          </tr>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">DOOH PLAYBACK RECEIPTS (API KEY)</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/dooh/receipts</code></td>
+            <td>Anchor a bilaterally-signed playback receipt</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/dooh/receipts</code></td>
+            <td>Query by campaign, screen, or time range</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/dooh/verify</code></td>
+            <td>Server-side run of the offline verifier</td>
+          </tr>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">GLYPH &mdash; SHORTCODES &amp; RESOLVER</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/proof/{id}/glyph</code></td>
+            <td>Render the bar sigil and magic link</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/g/{shortcode}</code></td>
+            <td>Public resolver page</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/g/{shortcode}.json</code></td>
+            <td>Resolver result as JSON</td>
+          </tr>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">ETCHMARK &mdash; AUDIO WATERMARK</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/proof/{id}/embed-audio</code></td>
+            <td>Embed a watermark, returns lossless WAV</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/proof/extract-audio</code></td>
+            <td>Detect a watermark and resolve it to a proof</td>
           </tr>
         </tbody>
       </table>
@@ -616,6 +740,44 @@ proof = chain.<span class="fn">generate_proof</span>(entry.leaf_index)
             <td><span class="api-method post">POST</span></td>
             <td><code>/v1/proof/{id}/verify</code></td>
             <td>Verify content integrity and chain validity</td>
+          </tr>
+          <tr>
+            <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">SYSTEM OF RECORD (API KEY)</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/records</code></td>
+            <td>Commit a record and get a receipt</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/records</code></td>
+            <td>List and filter with cursor pagination</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/records/{id}</code></td>
+            <td>Retrieve a record receipt</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/records/{id}/proof</code></td>
+            <td>Self-contained inclusion proof</td>
+          </tr>
+          <tr>
+            <td><span class="api-method post">POST</span></td>
+            <td><code>/v1/records/verify</code></td>
+            <td>Verify a record against the chain</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/records/stats</code></td>
+            <td>Append vs. dedup counters for a namespace</td>
+          </tr>
+          <tr>
+            <td><span class="api-method get">GET</span></td>
+            <td><code>/v1/chain/root</code></td>
+            <td>Current namespace chain state</td>
           </tr>
           <tr>
             <td colspan="3" style="background: var(--bg-elevated); color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.05em;">C2PA COMPATIBILITY</td>
