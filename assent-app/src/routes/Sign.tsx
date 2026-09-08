@@ -392,9 +392,23 @@ export default function Sign() {
     }
   };
 
+  // What it takes to finish: every signature field that was placed has been
+  // signed, and there is at least one thing to bake in. A signature is not
+  // required — a filled-in text field (printed name, date, initials) is a
+  // complete document on its own, and the chain, not the ink, is what proves
+  // it. Empty text fields don't count; flattenSignedPdf skips them, so a
+  // document with nothing but blank boxes would finalize as an unchanged copy.
+  const filledTextFields = useMemo(
+    () => textFields.filter((f) => f.value.trim().length > 0),
+    [textFields],
+  );
+  const unsignedCount = signatureFields.filter((f) => !f.signed).length;
+  const canFinish =
+    unsignedCount === 0 && (signatureFields.length > 0 || filledTextFields.length > 0);
+
   const finishAndPublish = async () => {
     if (!bytes || !originalHashRef.current || !lastHashRef.current) return;
-    if (signatureFields.length === 0 || !signatureFields.every((f) => f.signed)) return;
+    if (!canFinish) return;
     setBusyMsg("Finalizing PDF…");
     try {
       const flattened = await flattenSignedPdf({
@@ -681,7 +695,8 @@ export default function Sign() {
               <div className="text-sm font-medium mb-2">Sign</div>
               {signatureFields.length === 0 ? (
                 <p className="text-xs text-text-muted">
-                  Place a signature field above, then sign it here.
+                  Place a signature field above, then sign it here. Optional —
+                  text fields alone are enough to finish.
                 </p>
               ) : (
                 <ul className="space-y-2">
@@ -738,11 +753,19 @@ export default function Sign() {
           <button
             type="button"
             onClick={() => setStage((s) => ({ ...s, step: "review" }))}
-            disabled={signatureFields.length === 0 || !signatureFields.every((f) => f.signed)}
+            disabled={!canFinish}
             className="btn-primary w-full justify-center disabled:opacity-40"
           >
             Review & Finish
           </button>
+        )}
+
+        {stage.step === "placing" && !canFinish && (
+          <p className="text-xs text-text-muted -mt-3 text-center">
+            {unsignedCount > 0
+              ? `Sign ${unsignedCount} remaining signature field${unsignedCount === 1 ? "" : "s"} to continue.`
+              : "Place a signature or fill in a text field to continue."}
+          </p>
         )}
 
         {stage.step === "review" && (
@@ -761,7 +784,20 @@ export default function Sign() {
                   </span>
                 </li>
               ))}
+              {filledTextFields.map((f) => (
+                <li key={f.id} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-text-dim shrink-0">Page {f.page}</span>
+                  <span className="text-text-muted truncate">{f.value}</span>
+                </li>
+              ))}
             </ul>
+            {textFields.length > filledTextFields.length && (
+              <p className="text-xs text-text-muted">
+                {textFields.length - filledTextFields.length} empty text field
+                {textFields.length - filledTextFields.length === 1 ? "" : "s"} will be
+                left out of the finished PDF.
+              </p>
+            )}
             <div className="flex flex-col gap-2">
               <button
                 type="button"
