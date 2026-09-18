@@ -188,11 +188,14 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
     // Our UI coordinate system has y=0 at the top; pdf-lib uses PDF points
     // with y=0 at the bottom. Translate here.
     const pdfY = pageHeight - sig.location.y - sig.location.height;
+    // Contain-fit and center, matching the overlay's object-contain — the
+    // field box is user-resizable, and stretching would distort the ink.
+    const fit = sigPng.scaleToFit(sig.location.width, sig.location.height);
     targetPage.drawImage(sigPng, {
-      x: sig.location.x,
-      y: pdfY,
-      width: sig.location.width,
-      height: sig.location.height,
+      x: sig.location.x + (sig.location.width - fit.width) / 2,
+      y: pdfY + (sig.location.height - fit.height) / 2,
+      width: fit.width,
+      height: fit.height,
     });
   }
 

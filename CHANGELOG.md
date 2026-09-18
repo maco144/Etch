@@ -67,6 +67,8 @@ still reads `0.2.0` — bump it before tagging the next release (see
 - A document can now be finalized on text fields alone; a signature field is no
   longer required.
 - The verification stamp shrank from a full-width banner to a corner badge.
+- A signed Assent signature field can still be moved and resized while placing;
+  the finalized PDF contain-fits the ink into the box instead of stretching it.
 - `POST /v1/proof/batch` accepts up to 1000 items per request.
 
 ### Fixed
@@ -76,6 +78,8 @@ still reads `0.2.0` — bump it before tagging the next release (see
   into a scan.
 - Assent field placement is predictable, and a placed signature no longer hides
   text beneath it.
+- Assent "remove field" and "remove stamp" work — pressing them no longer starts
+  a drag on the field, which had swallowed the click and opened the signature pad.
 
 ### Removed
 

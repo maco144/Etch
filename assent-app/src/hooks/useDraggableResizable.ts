@@ -68,6 +68,11 @@ export function useDraggableResizable({
   const beginMove = useCallback(
     (e: React.PointerEvent) => {
       if (disabled) return;
+      // Buttons nested in the body (remove field / remove stamp) must get
+      // their own click. Starting a drag here would preventDefault and
+      // capture the pointer onto the body, so the button never sees the
+      // click and the pointerup reads as a click on the field itself.
+      if ((e.target as HTMLElement).closest("button")) return;
       // preventDefault on pointerdown suppresses the browser's compatibility
       // mousedown/mouseup/click events for this interaction (same reasoning
       // as SignaturePad.tsx's existing pointerdown handler) — without it, a

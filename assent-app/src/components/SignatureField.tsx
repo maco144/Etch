@@ -36,7 +36,10 @@ export default function SignatureField({
   onSign,
   onRemove,
 }: Props) {
-  const interactive = editable && !field.signed;
+  // Signed fields stay movable/resizable while placing — the ink is a PNG
+  // that flattenSignedPdf contain-fits into whatever box is here at
+  // finalize time. Only an unsigned field treats a click as "sign this".
+  const interactive = editable;
 
   const { bodyProps, handleProps } = useDraggableResizable({
     rect: field,
@@ -46,7 +49,7 @@ export default function SignatureField({
     pageHeightPx,
     disabled: !interactive,
     onChange,
-    onClick: interactive ? onSign : undefined,
+    onClick: interactive && !field.signed ? onSign : undefined,
   });
 
   const scaleX = pageWidthPx / pageWidthPt;
@@ -73,7 +76,8 @@ export default function SignatureField({
         <img
           src={field.signature.pngDataUrl}
           alt="signature"
-          className="w-full h-full object-contain"
+          className="w-full h-full object-contain pointer-events-none select-none"
+          draggable={false}
         />
       ) : (
         <div className="flex flex-col items-center justify-center h-full">
