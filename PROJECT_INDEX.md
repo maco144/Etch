@@ -40,7 +40,7 @@ etch/
 │   └── server.py            # FastAPI app entrypoint, lifespan, logging, /health
 ├── assent-app/              # React+Vite frontend for Etch Assent (builds → site/assent/)
 │   ├── src/routes/          # Home, Sign, Send, Verify
-│   ├── src/components/      # PdfViewer, SignatureField, SignaturePad, TextFieldOverlay, StampFieldOverlay, VerifyChain
+│   ├── src/components/      # PdfViewer, SignatureField, SignaturePad, TextFieldOverlay, CheckboxFieldOverlay, StampFieldOverlay, VerifyChain
 │   ├── src/hooks/           # useDraggableResizable (shared drag + resize for all field overlays)
 │   └── src/lib/             # crypto (AES-GCM WebCrypto), hash, etch, pdf (pdf-lib + PDF.js), signatures, handoff, routing
 ├── tests/
@@ -239,7 +239,9 @@ read-only and registers nothing.
 - **components/StampFieldOverlay.tsx** — the QR verification stamp: movable, resizable, removable
 - **lib/crypto.ts** — WebCrypto AES-256-GCM: `generateKey`, encrypt/decrypt, `[IV (12) || CT]` layout, base64url export for URL fragment
 - **lib/etch.ts** — Browser client for `/v1/assent/*`
-- **lib/pdf.ts** — pdf-lib writes + PDF.js rendering
+- **lib/pdf.ts** — pdf-lib writes + PDF.js rendering; strips AcroForm widgets it has drawn over
+- **lib/detectFields.ts** — finds fields client-side: AcroForm widgets first (exact), else
+  heuristics over the text layer and drawn paths (underscores, rules, captions, squares, `Label:`)
 - **lib/routing.ts** — URL fragment parsing (`#key=<b64>&t=<write_token>`)
 - **lib/handoff.ts** — module-scoped `Map` staging Home → Sign; avoids the ~60 MB cost of
   round-tripping a 10 MB `Uint8Array` through `sessionStorage`

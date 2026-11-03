@@ -68,7 +68,11 @@ export default function SignatureField({
       // place-a-field handler, same as TextFieldOverlay's `swallow` wrapper.
       onClick={(e) => e.stopPropagation()}
       className={`absolute border-2 border-dashed rounded-sm touch-none ${
-        field.signed ? "border-success bg-success/5" : "border-accent bg-accent/10"
+        field.signed
+          ? "border-success bg-success/5"
+          : field.suggested
+            ? "border-accent/60 bg-accent/5"
+            : "border-accent bg-accent/10"
       } ${interactive ? "pointer-events-auto cursor-move" : "pointer-events-none"}`}
       style={{ left, top, width, height }}
     >
@@ -81,8 +85,10 @@ export default function SignatureField({
         />
       ) : (
         <div className="flex flex-col items-center justify-center h-full">
-          <span className="text-xs font-medium text-accent">Sign here</span>
-          <span className="text-[10px] text-text-muted">click to sign, drag to move</span>
+          <span className="text-xs font-medium text-accent">{field.suggested ? "Sign here?" : "Sign here"}</span>
+          <span className="text-[10px] text-text-muted">
+            {field.suggested ? "suggested — click to sign, or remove" : "click to sign, drag to move"}
+          </span>
         </div>
       )}
       {interactive &&

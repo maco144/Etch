@@ -65,7 +65,7 @@ export default function TextFieldOverlay({
   // scrolls out of view) and is clamped to the page edge.
   const withValue = (value: string): TextFieldValue => {
     if (!field.autoFit) return { ...field, value };
-    const { width } = fitTextBox(value, field.fontSize, scaleX, scaleY);
+    const { width } = fitTextBox(value, field.fontSize, scaleX, scaleY, field.emptyWidth);
     return { ...field, value, width: Math.min(width, pageWidthPt - field.x) };
   };
 
@@ -75,7 +75,7 @@ export default function TextFieldOverlay({
   // ends at the last glyph. Vertical center stays put.
   const fit = () => {
     const text = field.value.trimEnd();
-    const { width, height } = fitTextBox(text, field.fontSize, scaleX, scaleY);
+    const { width, height } = fitTextBox(text, field.fontSize, scaleX, scaleY, field.emptyWidth);
     const cy = field.y + field.height / 2;
     const y = Math.max(0, Math.min(pageHeightPt - height, cy - height / 2));
     onChange({ ...field, value: text, autoFit: true, y, width: Math.min(width, pageWidthPt - field.x), height });
@@ -110,7 +110,10 @@ export default function TextFieldOverlay({
 
   return (
     <div
-      className="absolute"
+      // Controls show on hover / while typing only: a detected form can put a
+      // dozen fields on one page, and always-on toolbars would stack over
+      // the neighbouring fields and the document text.
+      className="group absolute"
       style={{ left, top, width, height }}
       onMouseDown={swallow}
       onClick={swallow}
@@ -127,7 +130,7 @@ export default function TextFieldOverlay({
           if (field.autoFit && field.value !== field.value.trimEnd()) onChange(withValue(field.value.trimEnd()));
         }}
         onKeyDown={swallow}
-        placeholder="Type here…"
+        placeholder={field.label || "Type here…"}
         className={`w-full h-full bg-white/95 border-2 ${
           editable ? "border-dashed border-accent" : "border-solid border-border/40"
         } rounded-sm text-black outline-none focus:bg-white focus:border-accent`}
@@ -141,11 +144,12 @@ export default function TextFieldOverlay({
         }}
       />
       {editable && (
-        <div className="absolute -top-6 left-0 flex gap-1 whitespace-nowrap text-xs">
+        // pb-1.5 bridges the gap down to the box so the hover isn't lost on the way up.
+        <div className="absolute -top-6 left-0 z-10 flex gap-1 pb-1.5 whitespace-nowrap text-xs opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
           <div
             {...bodyProps}
             title="Drag to move"
-            className="touch-none pointer-events-auto text-text-dim hover:text-accent bg-bg/80 px-1 rounded cursor-move select-none"
+            className="touch-none text-text-dim hover:text-accent bg-bg/80 px-1 rounded cursor-move select-none"
           >
             ⠿ move
           </div>
@@ -180,7 +184,7 @@ export default function TextFieldOverlay({
           <div
             key={c}
             {...handleProps(c)}
-            className="absolute w-2.5 h-2.5 bg-accent border border-white rounded-sm pointer-events-auto touch-none"
+            className="absolute w-2.5 h-2.5 bg-accent border border-white rounded-sm pointer-events-auto touch-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
             style={CORNER_STYLE[c]}
           />
         ))}

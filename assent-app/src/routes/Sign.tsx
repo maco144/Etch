@@ -5,6 +5,8 @@ import SignatureField from "../components/SignatureField";
 import SignaturePad from "../components/SignaturePad";
 import StampFieldOverlay from "../components/StampFieldOverlay";
 import TextFieldOverlay from "../components/TextFieldOverlay";
+import CheckboxFieldOverlay from "../components/CheckboxFieldOverlay";
+import { detectFields, type DetectedField } from "../lib/detectFields";
 import {
   downloadDocument,
   EtchApiError,
@@ -30,10 +32,22 @@ import {
   downloadJson,
   fitTextBox,
   flattenSignedPdf,
-  type RenderedPage, type SignatureFieldValue, type TextFieldValue } from "../lib/pdf";
+  type CheckboxFieldValue,
+  type PdfDocProxy,
+  type RenderedPage,
+  type SignatureFieldValue,
+  type TextFieldValue,
+} from "../lib/pdf";
 import { signWithPasskey, type CapturedSignature } from "../lib/signatures";
 
-type PlacementMode = "signature" | "text";
+type PlacementMode = "signature" | "text" | "checkbox";
+
+const CHECKBOX_SIZE_PT = 12;
+
+interface DetectionSummary {
+  form: number;
+  guessed: number;
+}
 
 interface Stage {
   step: "placing" | "review" | "finalized";
@@ -76,6 +90,9 @@ export default function Sign() {
   const [signingFieldId, setSigningFieldId] = useState<string | null>(null);
   const credentialIdRef = useRef<string | null>(null);
   const [textFields, setTextFields] = useState<TextFieldValue[]>([]);
+  const [checkboxes, setCheckboxes] = useState<CheckboxFieldValue[]>([]);
+  const [detection, setDetection] = useState<DetectionSummary | null>(null);
+  const detectedForRef = useRef<PdfDocProxy | null>(null);
   const [stampEnabled, setStampEnabled] = useState(true);
   const [stampField, setStampField] = useState<FieldLocation | null>(null);
   const [placementMode, setPlacementMode] = useState<PlacementMode>("signature");
@@ -264,6 +281,20 @@ export default function Sign() {
         return;
       }
 
+      if (placementMode === "checkbox") {
+        const next: CheckboxFieldValue = {
+          id: crypto.randomUUID(),
+          page,
+          x: Math.max(0, Math.min(target.widthPt - CHECKBOX_SIZE_PT, clickXPt - CHECKBOX_SIZE_PT / 2)),
+          y: Math.max(0, Math.min(target.heightPt - CHECKBOX_SIZE_PT, clickYPt - CHECKBOX_SIZE_PT / 2)),
+          width: CHECKBOX_SIZE_PT,
+          height: CHECKBOX_SIZE_PT,
+          checked: true,
+        };
+        setCheckboxes((prev) => [...prev, next]);
+        return;
+      }
+
       // signature placement — always adds a new field, same as text fields.
       const next: SignatureFieldValue = {
         id: crypto.randomUUID(),
@@ -279,8 +310,132 @@ export default function Sign() {
   );
 
   const updateTextField = useCallback((next: TextFieldValue) => {
-    setTextFields((prev) => prev.map((tf) => (tf.id === next.id ? next : tf)));
+    setTextFields((prev) =>
+      prev.map((tf) => {
+        if (tf.id === next.id) return next;
+        // Widgets of one AcroForm field are one value shown in several places.
+        if (next.acroName && tf.acroName === next.acroName && tf.value !== next.value) {
+          return { ...tf, value: next.value };
+        }
+        return tf;
+      }),
+    );
   }, []);
+  const toggleCheckbox = useCallback((id: string) => {
+    setCheckboxes((prev) => {
+      const hit = prev.find((c) => c.id === id);
+      if (!hit) return prev;
+      const radio = hit.radioValue !== undefined;
+      const checked = radio ? true : !hit.checked;
+      return prev.map((c) => {
+        if (c.id === id) return { ...c, checked };
+        if (!hit.acroName || c.acroName !== hit.acroName) return c;
+        // Radio: one option per group. Checkbox: kids of one field move together.
+        if (radio) return c.radioValue !== undefined ? { ...c, checked: c.radioValue === hit.radioValue } : c;
+        return c.radioValue === undefined ? { ...c, checked } : c;
+      });
+    });
+  }, []);
+  const updateCheckbox = useCallback((next: CheckboxFieldValue) => {
+    setCheckboxes((prev) => prev.map((c) => (c.id === next.id ? next : c)));
+  }, []);
+  const removeCheckbox = useCallback((id: string) => {
+    setCheckboxes((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  // --- 3b. Field detection ----------------------------------------------
+  //   Runs once per loaded document, in the browser. Detected fields are
+  //   ordinary fields the signer can edit or remove; detected signature
+  //   fields stay suggestions until signed (see SignatureFieldValue.suggested).
+
+  const runDetection = useCallback(
+    async (doc: PdfDocProxy, pages: Map<number, RenderedPage>) => {
+      if (detectedForRef.current === doc) return;
+      detectedForRef.current = doc;
+      let found: DetectedField[];
+      try {
+        found = (await detectFields(doc)).fields;
+      } catch (err) {
+        console.warn("[assent] field detection failed", err);
+        return;
+      }
+      if (detectedForRef.current !== doc) return;
+      const today = new Date().toLocaleDateString();
+      const texts: TextFieldValue[] = [];
+      const boxes: CheckboxFieldValue[] = [];
+      const sigs: SignatureFieldValue[] = [];
+      for (const f of found) {
+        const loc = { page: f.page, x: f.x, y: f.y, width: f.width, height: f.height };
+        if (f.kind === "text") {
+          const value = f.value || (f.hint === "date" ? today : "");
+          const guessed = f.source === "heuristic";
+          const text: TextFieldValue = {
+            id: crypto.randomUUID(),
+            ...loc,
+            fontSize: f.fontSize,
+            value,
+            detected: true,
+            label: f.label ? f.label.replace(/^\w/, (c) => c.toUpperCase()) : undefined,
+            hint: f.hint,
+            acroName: f.acroName,
+            // A guessed blank hugs what's typed into it, starting at the
+            // length of the line it was found on. A form widget keeps the box
+            // the form's author drew.
+            autoFit: guessed,
+            emptyWidth: guessed ? f.width : undefined,
+          };
+          const page = pages.get(f.page);
+          if (guessed && value && page) {
+            text.width = fitTextBox(value, f.fontSize, page.widthPx / page.widthPt, page.heightPx / page.heightPt, f.width).width;
+          }
+          texts.push(text);
+        } else if (f.kind === "checkbox") {
+          boxes.push({
+            id: crypto.randomUUID(),
+            ...loc,
+            checked: f.checked,
+            detected: true,
+            label: f.label,
+            acroName: f.acroName,
+            radioValue: f.radioValue,
+          });
+        } else {
+          sigs.push({ id: crypto.randomUUID(), ...loc, signed: false, suggested: true, acroName: f.acroName });
+        }
+      }
+      setTextFields((prev) => [...prev, ...texts]);
+      setCheckboxes((prev) => [...prev, ...boxes]);
+      setSignatureFields((prev) => [...prev, ...sigs]);
+      setDetection({
+        form: found.filter((f) => f.source === "acroform").length,
+        guessed: found.filter((f) => f.source === "heuristic").length,
+      });
+    },
+    [],
+  );
+
+  /** Drop detected fields the signer never used. Anything filled in stays. */
+  const clearUnusedSuggestions = () => {
+    setTextFields((prev) => prev.filter((f) => !f.detected || f.value.trim()));
+    setCheckboxes((prev) => prev.filter((c) => !c.detected || c.checked));
+    setSignatureFields((prev) => prev.filter((f) => !f.suggested));
+    setDetection(null);
+  };
+
+  /** Identity-panel edits flow into blanks detected as "name"/"email" — unless the signer typed something else there. */
+  const setSignerField = (key: "name" | "email", next: string) => {
+    const prevValue = stage.signer[key];
+    setStage((s) => ({ ...s, signer: { ...s.signer, [key]: next } }));
+    setTextFields((prev) =>
+      prev.map((f) => {
+        if (f.hint !== key || (f.value !== "" && f.value !== prevValue)) return f;
+        const page = pagesByNumber.get(f.page);
+        if (!f.autoFit || !page) return { ...f, value: next };
+        const { width } = fitTextBox(next, f.fontSize, page.widthPx / page.widthPt, page.heightPx / page.heightPt, f.emptyWidth);
+        return { ...f, value: next, width: Math.min(width, page.widthPt - f.x) };
+      }),
+    );
+  };
   const removeTextField = useCallback((id: string) => {
     setTextFields((prev) => prev.filter((tf) => tf.id !== id));
   }, []);
@@ -366,6 +521,11 @@ export default function Sign() {
     if (!target || !lastHashRef.current) return;
     setBusyMsg("Stamping signature…");
     try {
+      if (target.suggested) {
+        // Accepting a suggestion is placing it: same field_added a click
+        // would have written, then the signature on top.
+        await emitFieldAdded({ page: target.page, x: target.x, y: target.y, width: target.width, height: target.height });
+      }
       await stampEvent(
         buildEvent({
           documentId,
@@ -389,7 +549,14 @@ export default function Sign() {
       setSignatureFields((prev) =>
         prev.map((f) =>
           f.id === fieldId
-            ? { ...f, signed: true, signature: sig, signerLabel: signerLabel(), signedAt: new Date().toISOString() }
+            ? {
+                ...f,
+                signed: true,
+                suggested: false,
+                signature: sig,
+                signerLabel: signerLabel(),
+                signedAt: new Date().toISOString(),
+              }
             : f,
         ),
       );
@@ -411,9 +578,12 @@ export default function Sign() {
     () => textFields.filter((f) => f.value.trim().length > 0),
     [textFields],
   );
-  const unsignedCount = signatureFields.filter((f) => !f.signed).length;
+  const checkedBoxes = useMemo(() => checkboxes.filter((c) => c.checked), [checkboxes]);
+  // Unsigned suggestions don't block — they're dropped at finalize.
+  const unsignedCount = signatureFields.filter((f) => !f.signed && !f.suggested).length;
+  const signedFields = signatureFields.filter((f) => f.signed);
   const canFinish =
-    unsignedCount === 0 && (signatureFields.length > 0 || filledTextFields.length > 0);
+    unsignedCount === 0 && (signedFields.length > 0 || filledTextFields.length > 0 || checkedBoxes.length > 0);
 
   const finishAndPublish = async () => {
     if (!bytes || !originalHashRef.current || !lastHashRef.current) return;
@@ -422,11 +592,21 @@ export default function Sign() {
     try {
       const flattened = await flattenSignedPdf({
         originalBytes: bytes,
-        signatures: signatureFields.map((f) => ({
+        signatures: signedFields.map((f) => ({
           location: { page: f.page, x: f.x, y: f.y, width: f.width, height: f.height },
           png: f.signature!.pngDataUrl,
         })),
         textFields,
+        checkboxes,
+        // Every AcroForm field still on the page is drawn by us, so its
+        // original widget goes. A field the signer removed keeps its widget.
+        acroNames: [
+          ...new Set(
+            [...textFields, ...checkboxes, ...signatureFields]
+              .map((f) => f.acroName)
+              .filter((n): n is string => !!n),
+          ),
+        ],
         documentId,
         verifyUrl: `${window.location.origin}/verify/${documentId}`,
         signerLabel: signerLabel(),
@@ -512,7 +692,10 @@ export default function Sign() {
 
   const signatureOverlaysForActive = useMemo(() => {
     if (!currentPage) return null;
-    const onPage = signatureFields.filter((f) => f.page === activePage);
+    // Past placing, an unsigned suggestion is just going to be dropped — don't show it.
+    const onPage = signatureFields.filter(
+      (f) => f.page === activePage && (stage.step === "placing" || !f.suggested),
+    );
     if (!onPage.length) return null;
     return (
       <>
@@ -559,6 +742,30 @@ export default function Sign() {
     );
   }, [textFields, currentPage, activePage, stage.step, autoFocusTextId, updateTextField, removeTextField]);
 
+  const checkboxOverlaysForActive = useMemo(() => {
+    if (!currentPage) return null;
+    const onPage = checkboxes.filter((c) => c.page === activePage);
+    if (!onPage.length) return null;
+    return (
+      <>
+        {onPage.map((c) => (
+          <CheckboxFieldOverlay
+            key={c.id}
+            field={c}
+            pageWidthPx={currentPage.widthPx}
+            pageHeightPx={currentPage.heightPx}
+            pageWidthPt={currentPage.widthPt}
+            pageHeightPt={currentPage.heightPt}
+            editable={stage.step === "placing"}
+            onToggle={toggleCheckbox}
+            onChange={updateCheckbox}
+            onRemove={removeCheckbox}
+          />
+        ))}
+      </>
+    );
+  }, [checkboxes, currentPage, activePage, stage.step, toggleCheckbox, updateCheckbox, removeCheckbox]);
+
   const stampOverlayForActive = useMemo(() => {
     if (!stampEnabled || !stampField || !currentPage) return null;
     if (stampField.page !== activePage) return null;
@@ -598,8 +805,9 @@ export default function Sign() {
           bytes={bytes}
           activePage={activePage}
           onPageChange={setActivePage}
-          onDocumentReady={({ numPages, pages }) => {
+          onDocumentReady={({ numPages, pages, doc }) => {
             setPagesByNumber(pages);
+            void runDetection(doc, pages);
             setStampField((prev) => {
               if (prev) return prev;
               const lastPage = pages.get(numPages);
@@ -621,6 +829,7 @@ export default function Sign() {
              under/over order in the final PDF. */}
           {signatureOverlaysForActive}
           {textOverlaysForActive}
+          {checkboxOverlaysForActive}
           {stampOverlayForActive}
         </PdfViewer>
       </div>
@@ -639,31 +848,43 @@ export default function Sign() {
               <input
                 type="text"
                 value={stage.signer.name}
-                onChange={(e) =>
-                  setStage((s) => ({
-                    ...s,
-                    signer: { ...s.signer, name: e.target.value },
-                  }))
-                }
+                onChange={(e) => setSignerField("name", e.target.value)}
                 className="w-full bg-bg border border-border rounded px-3 py-1.5 text-sm"
               />
               <label className="block text-xs text-text-dim mb-1 mt-3">Email</label>
               <input
                 type="email"
                 value={stage.signer.email}
-                onChange={(e) =>
-                  setStage((s) => ({
-                    ...s,
-                    signer: { ...s.signer, email: e.target.value },
-                  }))
-                }
+                onChange={(e) => setSignerField("email", e.target.value)}
                 className="w-full bg-bg border border-border rounded px-3 py-1.5 text-sm"
               />
             </div>
             <hr className="border-border" />
             <div>
               <div className="text-sm font-medium mb-2">Place fields</div>
-              <div className="grid grid-cols-2 gap-2 mb-2">
+              {detection && detection.form + detection.guessed > 0 && (
+                <div className="mb-3 rounded border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-text-dim">
+                  {detection.form > 0 && (
+                    <div>
+                      Filled in from this PDF&apos;s form: {detection.form} field{detection.form === 1 ? "" : "s"}.
+                    </div>
+                  )}
+                  {detection.guessed > 0 && (
+                    <div>
+                      Detected {detection.guessed} blank{detection.guessed === 1 ? "" : "s"} — check each one; empty
+                      ones are left out.
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={clearUnusedSuggestions}
+                    className="mt-1 text-accent hover:underline"
+                  >
+                    Clear unused suggestions
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2 mb-2">
                 <button
                   type="button"
                   onClick={() => setPlacementMode("signature")}
@@ -684,18 +905,33 @@ export default function Sign() {
                       : ""
                   }`}
                 >
-                  + Text field
+                  + Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlacementMode("checkbox")}
+                  className={`btn-secondary justify-center text-xs ${
+                    placementMode === "checkbox"
+                      ? "ring-1 ring-accent bg-accent/10"
+                      : ""
+                  }`}
+                >
+                  + Check
                 </button>
               </div>
               <p className="text-xs text-text-muted">
                 {placementMode === "signature"
                   ? "Click on the document where you want a signature. Add as many as you need."
-                  : "Click where you want a text field (printed name, date, etc.). Add as many as you need."}
+                  : placementMode === "text"
+                    ? "Click where you want a text field (printed name, date, etc.). Add as many as you need."
+                    : "Click where you want a check mark. Click a box to toggle it."}
               </p>
-              {(signatureFields.length > 0 || textFields.length > 0) && (
+              {(signatureFields.length > 0 || textFields.length > 0 || checkboxes.length > 0) && (
                 <p className="text-xs text-text-muted mt-1">
                   {signatureFields.length} signature field{signatureFields.length === 1 ? "" : "s"},{" "}
-                  {textFields.length} text field{textFields.length === 1 ? "" : "s"} on this document.
+                  {textFields.length} text field{textFields.length === 1 ? "" : "s"}
+                  {checkboxes.length > 0 && `, ${checkboxes.length} checkbox${checkboxes.length === 1 ? "" : "es"}`} on
+                  this document.
                 </p>
               )}
             </div>
@@ -705,13 +941,16 @@ export default function Sign() {
               {signatureFields.length === 0 ? (
                 <p className="text-xs text-text-muted">
                   Place a signature field above, then sign it here. Optional —
-                  text fields alone are enough to finish.
+                  text fields or check marks alone are enough to finish.
                 </p>
               ) : (
                 <ul className="space-y-2">
                   {signatureFields.map((f) => (
                     <li key={f.id} className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-text-dim">Page {f.page}</span>
+                      <span className="text-xs text-text-dim">
+                        Page {f.page}
+                        {f.suggested && <span className="text-text-muted"> · suggested</span>}
+                      </span>
                       {f.signed ? (
                         <span className="chip-success">Signed</span>
                       ) : (
@@ -773,7 +1012,7 @@ export default function Sign() {
           <p className="text-xs text-text-muted -mt-3 text-center">
             {unsignedCount > 0
               ? `Sign ${unsignedCount} remaining signature field${unsignedCount === 1 ? "" : "s"} to continue.`
-              : "Place a signature or fill in a text field to continue."}
+              : "Place a signature, fill in a text field, or check a box to continue."}
           </p>
         )}
 
@@ -785,7 +1024,7 @@ export default function Sign() {
               Nothing is published until you click Finish &amp; Publish.
             </p>
             <ul className="space-y-1.5">
-              {signatureFields.map((f) => (
+              {signedFields.map((f) => (
                 <li key={f.id} className="flex items-center justify-between text-xs">
                   <span className="text-text-dim">Page {f.page}</span>
                   <span className="chip-success">
@@ -797,6 +1036,12 @@ export default function Sign() {
                 <li key={f.id} className="flex items-center justify-between gap-3 text-xs">
                   <span className="text-text-dim shrink-0">Page {f.page}</span>
                   <span className="text-text-muted truncate">{f.value}</span>
+                </li>
+              ))}
+              {checkedBoxes.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-text-dim shrink-0">Page {c.page}</span>
+                  <span className="text-text-muted truncate">☑ {c.label ?? "Checked"}</span>
                 </li>
               ))}
             </ul>

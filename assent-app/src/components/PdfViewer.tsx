@@ -10,7 +10,7 @@ interface Props {
   bytes: Uint8Array;
   activePage: number;
   onPageChange: (page: number) => void;
-  onDocumentReady: (doc: { numPages: number; pages: Map<number, RenderedPage> }) => void;
+  onDocumentReady: (doc: { numPages: number; pages: Map<number, RenderedPage>; doc: PdfDocProxy }) => void;
   onPageClick?: (page: number, xPct: number, yPct: number) => void;
   children?: React.ReactNode;
 }
@@ -54,7 +54,7 @@ export default function PdfViewer({
           pageMap.set(i, page);
           setRendered(new Map(pageMap));
         }
-        onDocumentReady({ numPages: doc.numPages, pages: pageMap });
+        onDocumentReady({ numPages: doc.numPages, pages: pageMap, doc });
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);

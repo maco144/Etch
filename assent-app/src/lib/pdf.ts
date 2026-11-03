@@ -2,11 +2,22 @@
 // browser — the PDF bytes never leave the client.
 
 import * as pdfjs from "pdfjs-dist";
-import { PDFDocument, StandardFontEmbedder, StandardFonts, rgb } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFString,
+  StandardFontEmbedder,
+  StandardFonts,
+  rgb,
+} from "pdf-lib";
 import type { FontNames } from "@pdf-lib/standard-fonts";
 import QRCode from "qrcode";
 import type { FieldLocation } from "./etch";
 import { toArrayBuffer } from "./hash";
+import type { FieldHint } from "./detectFields";
 import type { CapturedSignature } from "./signatures";
 
 // Vite's bundler resolves ?url imports; the worker ships alongside the app so
@@ -71,6 +82,26 @@ export interface TextFieldValue extends FieldLocation {
    * a manual resize turns it off, the "fit" control turns it back on.
    */
   autoFit?: boolean;
+  /** UI-only: width while empty (a detected blank keeps its line's length). */
+  emptyWidth?: number;
+  /** Placed by field detection rather than by a click. */
+  detected?: boolean;
+  /** What the document calls this blank ("Date", "Printed name"); shown as the placeholder. */
+  label?: string;
+  /** Prefill binding: a "name"/"email" field follows the signer identity panel. */
+  hint?: FieldHint;
+  /** The AcroForm field this came from; widgets sharing a name share a value. */
+  acroName?: string;
+}
+
+export interface CheckboxFieldValue extends FieldLocation {
+  id: string;
+  checked: boolean;
+  detected?: boolean;
+  label?: string;
+  acroName?: string;
+  /** Set on radio options: checking one clears its siblings with the same acroName. */
+  radioValue?: string;
 }
 
 /** Horizontal gap between a text field's left edge and its first glyph, in pt. */
@@ -102,10 +133,11 @@ export function fitTextBox(
   fontSize: number,
   scaleX: number,
   scaleY: number,
+  emptyWidth = TEXT_FIELD_EMPTY_WIDTH_PT,
 ): { width: number; height: number } {
   const width = text.trim()
     ? measureHelvetica(text, fontSize) + TEXT_FIELD_INSET_PT * 2 + CARET_SLACK_PT + (TEXT_FIELD_BORDER_PX * 2) / scaleX
-    : TEXT_FIELD_EMPTY_WIDTH_PT;
+    : emptyWidth;
   const height = fontSize * TEXT_FIELD_LINE_HEIGHT + (TEXT_FIELD_BORDER_PX * 2) / scaleY;
   return { width, height };
 }
@@ -117,6 +149,12 @@ export interface SignatureFieldValue extends FieldLocation {
   signature?: CapturedSignature;
   signerLabel?: string;
   signedAt?: string;
+  /**
+   * Detected, not yet accepted. A suggestion doesn't block finishing and isn't
+   * on the chain; signing it is what accepts it (field_added, then signed).
+   */
+  suggested?: boolean;
+  acroName?: string;
 }
 
 const STAMP_REFERENCE_HEIGHT = 68; // today's fixed height — scale is relative to this
@@ -185,6 +223,12 @@ export interface FlattenArgs {
   originalBytes: Uint8Array;
   signatures: { location: FieldLocation; png: string }[];
   textFields: TextFieldValue[];
+  checkboxes?: CheckboxFieldValue[];
+  /**
+   * AcroForm fields Assent drew itself. Their widgets are stripped, or a
+   * viewer would paint the original (empty) field over the drawn value.
+   */
+  acroNames?: string[];
   documentId: string;
   verifyUrl: string;
   signerLabel: string;
@@ -201,6 +245,27 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
   const pages = pdfDoc.getPages();
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  if (args.acroNames?.length) stripFormWidgets(pdfDoc, new Set(args.acroNames));
+
+  for (const cb of args.checkboxes ?? []) {
+    if (!cb.checked || cb.page < 1 || cb.page > pages.length) continue;
+    const page = pages[cb.page - 1];
+    const bottom = page.getSize().height - cb.y - cb.height;
+    const ink = rgb(0.05, 0.05, 0.1);
+    if (cb.radioValue !== undefined) {
+      const r = Math.min(cb.width, cb.height) * 0.28;
+      page.drawCircle({ x: cb.x + cb.width / 2, y: bottom + cb.height / 2, size: r, color: ink });
+      continue;
+    }
+    // A check mark drawn as two strokes — no font, so no encoding to get wrong.
+    const s = Math.min(cb.width, cb.height);
+    const ox = cb.x + (cb.width - s) / 2;
+    const oy = bottom + (cb.height - s) / 2;
+    const thickness = Math.max(1, s * 0.12);
+    page.drawLine({ start: { x: ox + s * 0.2, y: oy + s * 0.5 }, end: { x: ox + s * 0.42, y: oy + s * 0.25 }, thickness, color: ink });
+    page.drawLine({ start: { x: ox + s * 0.42, y: oy + s * 0.25 }, end: { x: ox + s * 0.82, y: oy + s * 0.8 }, thickness, color: ink });
+  }
 
   // Text fields first, so signatures visually sit on top if they overlap.
   // Empty-value fields are skipped — a user who placed a field and typed
@@ -314,6 +379,50 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
   pdfDoc.setProducer("Etch Assent");
 
   return pdfDoc.save({ useObjectStreams: false });
+}
+
+/** Fully-qualified AcroForm name of a widget: its /T and every /Parent's, dot-joined. */
+function qualifiedFieldName(dict: PDFDict): string | null {
+  const parts: string[] = [];
+  let node: PDFDict | undefined = dict;
+  for (let depth = 0; node && depth < 32; depth++) {
+    const t = node.lookup(PDFName.of("T"));
+    if (t instanceof PDFString || t instanceof PDFHexString) parts.unshift(t.decodeText());
+    const parent: unknown = node.lookup(PDFName.of("Parent"));
+    node = parent instanceof PDFDict ? parent : undefined;
+  }
+  return parts.length ? parts.join(".") : null;
+}
+
+/**
+ * Remove the widget annotations (and their AcroForm entries) for fields Assent
+ * has drawn. Done by hand: pdf-lib's removeField looks widgets up through
+ * their appearance streams and throws on the many real-world forms that
+ * don't have one. Fields Assent doesn't handle (dropdowns, buttons) stay.
+ */
+function stripFormWidgets(pdfDoc: PDFDocument, names: Set<string>): void {
+  for (const page of pdfDoc.getPages()) {
+    const annots = page.node.lookup(PDFName.of("Annots"));
+    if (!(annots instanceof PDFArray)) continue;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const dict = annots.lookup(i);
+      if (!(dict instanceof PDFDict)) continue;
+      if (dict.lookup(PDFName.of("Subtype")) !== PDFName.of("Widget")) continue;
+      const name = qualifiedFieldName(dict);
+      if (!name || !names.has(name)) continue;
+      annots.remove(i);
+    }
+  }
+  try {
+    const form = pdfDoc.getForm();
+    for (const field of form.getFields()) {
+      if (names.has(field.getName())) form.acroForm.removeField(field.acroField);
+    }
+  } catch (err) {
+    // The widgets are already gone, which is what matters visually; a
+    // malformed /AcroForm tree just keeps its stale entries.
+    console.warn("[assent] could not prune AcroForm entries", err);
+  }
 }
 
 export function downloadBytes(bytes: Uint8Array, filename: string, mime = "application/pdf"): void {

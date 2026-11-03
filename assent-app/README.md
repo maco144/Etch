@@ -61,6 +61,7 @@ src/
 │   ├── SignatureField.tsx     a placed signature box
 │   ├── SignaturePad.tsx       canvas capture (mouse + touch) → PNG
 │   ├── TextFieldOverlay.tsx   printed name, date, etc.
+│   ├── CheckboxFieldOverlay.tsx  check mark / radio option
 │   ├── StampFieldOverlay.tsx  the QR verification stamp
 │   └── VerifyChain.tsx        renders an event chain as a receipt
 ├── hooks/
@@ -68,6 +69,7 @@ src/
 └── lib/
     ├── etch.ts        browser client for /v1/assent/*
     ├── pdf.ts         pdf-lib writes + PDF.js rendering
+    ├── detectFields.ts  in-browser field detection: AcroForm widgets, then layout heuristics
     ├── signatures.ts  drawn vs. WebAuthn capture
     ├── crypto.ts      AES-256-GCM, [IV(12) || ciphertext], base64url
     ├── hash.ts        SHA-256 via WebCrypto

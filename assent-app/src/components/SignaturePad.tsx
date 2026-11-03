@@ -23,8 +23,9 @@ export default function SignaturePad({ onSubmit, onCancel }: Props) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Transparent, not white: the PNG is stamped onto the PDF, and an opaque
+    // background would erase the signature line it sits on. The white you see
+    // while drawing is the canvas element's CSS background.
     ctx.strokeStyle = "#0a0a0f";
     ctx.lineWidth = 2.25;
     ctx.lineCap = "round";
@@ -71,8 +72,7 @@ export default function SignaturePad({ onSubmit, onCancel }: Props) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     setHasStroke(false);
   };
 

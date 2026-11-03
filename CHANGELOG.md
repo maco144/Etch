@@ -62,6 +62,17 @@ still reads `0.2.0` — bump it before tagging the next release (see
   `etch.*` log lines were being dropped, including the dedup line that is the only
   trace a suppressed write leaves. Level via `ETCH_LOG_LEVEL` (default `INFO`).
 
+- **Assent field detection.** Fields are found when a PDF opens, entirely in the
+  browser. Fillable PDFs import their own form fields (text, checkbox, radio,
+  signature) at the exact widget boxes with existing values; the finalized PDF
+  draws the values and strips the original widgets so no viewer paints an empty
+  field over them. Flat PDFs get suggested fields from underscore runs, drawn
+  underlines, captions under a line, small drawn squares, ☐ glyphs and bare
+  labels like `Name:`. Date blanks prefill today; name and email blanks follow
+  the identity panel. Detected signature boxes are suggestions: they don't block
+  finishing and only reach the chain when signed.
+- Assent checkbox fields, placeable by hand as well as detected.
+
 ### Changed
 
 - A document can now be finalized on text fields alone; a signature field is no
@@ -78,6 +89,8 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Fixed
 
+- Drawn signatures are stamped with a transparent background, so the ink no
+  longer erases the signature line it's placed on.
 - Index `idx_records_ns_ext` on `(namespace_id, external_id, record_type)` keeps
   the `if_changed` lookup flat as external IDs accumulate, instead of degrading
   into a scan.

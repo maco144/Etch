@@ -25,6 +25,8 @@ It is a **feature of Etch**, not a standalone product, but it is also served at 
 | Drawn signatures | **Shipped** | `lib/signatures.ts` |
 | Passkey / WebAuthn signatures | **Shipped** | `lib/signatures.ts` |
 | Optional text fields (printed name, date) | **Shipped** | `components/TextFieldOverlay.tsx` |
+| Checkbox / radio fields | **Shipped** | `components/CheckboxFieldOverlay.tsx` |
+| Field detection (AcroForm import + flat-PDF heuristics, in-browser) | **Shipped** | `lib/detectFields.ts` |
 | Anonymous provenance chain | **Shipped** | `etch/assent_api.py` |
 | Public verify page | **Shipped** | `routes/Verify.tsx`, `components/VerifyChain.tsx` |
 | Send-to-sign, E2EE ciphertext store | **Shipped** | `etch/assent_docs_api.py`, `routes/Send.tsx` |
@@ -288,6 +290,7 @@ yields neither the document nor the right to replace it.
 │       ├── lib/
 │       │   ├── etch.ts               # /v1/assent/* browser client
 │       │   ├── pdf.ts                # pdf-lib + PDF.js glue
+│       │   ├── detectFields.ts       # AcroForm import + flat-PDF blank detection
 │       │   ├── signatures.ts         # draw vs webauthn handlers
 │       │   ├── hash.ts               # SHA-256 helpers (WebCrypto)
 │       │   ├── crypto.ts             # AES-256-GCM E2EE helpers
@@ -300,6 +303,7 @@ yields neither the document nor the right to replace it.
 │           ├── SignatureField.tsx
 │           ├── SignaturePad.tsx
 │           ├── TextFieldOverlay.tsx
+│           ├── CheckboxFieldOverlay.tsx
 │           ├── StampFieldOverlay.tsx
 │           └── VerifyChain.tsx
 ├── etch/
