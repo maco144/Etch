@@ -36,7 +36,7 @@ interface Stage {
   signer: { email: string; name: string };
 }
 
-const TEXT_FIELD_WIDTH_PT = 180;
+const TEXT_FIELD_WIDTH_PT = 120;
 const TEXT_FIELD_HEIGHT_PT = 22;
 const TEXT_FIELD_FONT_PT = 12;
 

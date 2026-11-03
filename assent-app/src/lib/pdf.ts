@@ -2,7 +2,8 @@
 // browser — the PDF bytes never leave the client.
 
 import * as pdfjs from "pdfjs-dist";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFontEmbedder, StandardFonts, rgb } from "pdf-lib";
+import type { FontNames } from "@pdf-lib/standard-fonts";
 import QRCode from "qrcode";
 import type { FieldLocation } from "./etch";
 import { toArrayBuffer } from "./hash";
@@ -65,6 +66,17 @@ export interface TextFieldValue extends FieldLocation {
   id: string;
   value: string;
   fontSize: number;
+}
+
+/** Horizontal gap between a text field's left edge and its first glyph, in pt. */
+export const TEXT_FIELD_INSET_PT = 2;
+
+// The same AFM metrics flattenSignedPdf's embedded Helvetica uses, so a field
+// trimmed in the UI hugs exactly the text that gets baked into the PDF.
+let helvetica: StandardFontEmbedder | null = null;
+export function measureHelvetica(text: string, size: number): number {
+  helvetica ??= StandardFontEmbedder.for(StandardFonts.Helvetica as unknown as FontNames);
+  return helvetica.widthOfTextAtSize(text, size);
 }
 
 export interface SignatureFieldValue extends FieldLocation {
@@ -167,10 +179,14 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
     if (tf.page < 1 || tf.page > pages.length) continue;
     const page = pages[tf.page - 1];
     const { height: pageHeightPt } = page.getSize();
-    // Baseline sits slightly above the bottom of the field box.
-    const baselineY = pageHeightPt - tf.y - tf.height + (tf.height - tf.fontSize) / 2;
+    // Center the ascender-to-descender band in the box, the way the browser
+    // centers the input's text — so a vertically trimmed field still lands
+    // where it looked in the editor instead of dropping its descenders.
+    const glyphBand = font.heightAtSize(tf.fontSize, { descender: true });
+    const descent = glyphBand - font.heightAtSize(tf.fontSize, { descender: false });
+    const baselineY = pageHeightPt - tf.y - tf.height + (tf.height - glyphBand) / 2 + descent;
     page.drawText(tf.value, {
-      x: tf.x + 2,
+      x: tf.x + TEXT_FIELD_INSET_PT,
       y: baselineY,
       size: tf.fontSize,
       font,
