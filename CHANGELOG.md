@@ -67,8 +67,11 @@ still reads `0.2.0` — bump it before tagging the next release (see
   signature) at the exact widget boxes with existing values; the finalized PDF
   draws the values and strips the original widgets so no viewer paints an empty
   field over them. Flat PDFs get suggested fields from underscore runs, drawn
-  underlines, captions under a line, small drawn squares, ☐ glyphs and bare
-  labels like `Name:`. Date blanks prefill today; name and email blanks follow
+  underlines, captions under a line, empty table cells (labelled by the cell to
+  their left), checkboxes in every form Word produces — Wingdings / Wingdings 2
+  symbols, ☐ glyphs, content controls, legacy form checkboxes, drawn squares —
+  plus `( )` and `[ ]` blanks, and bare labels like `Name:`. A box the document
+  prints as ☑ comes in checked; unchecking it paints the printed mark out. Date blanks prefill today; name and email blanks follow
   the identity panel. Detected signature boxes are suggestions: they don't block
   finishing and only reach the chain when signed.
 - Assent checkbox fields, placeable by hand as well as detected.

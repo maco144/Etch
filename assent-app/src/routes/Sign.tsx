@@ -398,6 +398,7 @@ export default function Sign() {
             label: f.label,
             acroName: f.acroName,
             radioValue: f.radioValue,
+            printedChecked: f.printedChecked,
           });
         } else {
           sigs.push({ id: crypto.randomUUID(), ...loc, signed: false, suggested: true, acroName: f.acroName });

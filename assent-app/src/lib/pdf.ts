@@ -102,6 +102,8 @@ export interface CheckboxFieldValue extends FieldLocation {
   acroName?: string;
   /** Set on radio options: checking one clears its siblings with the same acroName. */
   radioValue?: string;
+  /** The page prints a check here already; unchecking has to paint it out. */
+  printedChecked?: boolean;
 }
 
 /** Horizontal gap between a text field's left edge and its first glyph, in pt. */
@@ -249,10 +251,21 @@ export async function flattenSignedPdf(args: FlattenArgs): Promise<Uint8Array> {
   if (args.acroNames?.length) stripFormWidgets(pdfDoc, new Set(args.acroNames));
 
   for (const cb of args.checkboxes ?? []) {
-    if (!cb.checked || cb.page < 1 || cb.page > pages.length) continue;
+    if (cb.page < 1 || cb.page > pages.length) continue;
     const page = pages[cb.page - 1];
     const bottom = page.getSize().height - cb.y - cb.height;
     const ink = rgb(0.05, 0.05, 0.1);
+    if (!cb.checked) {
+      // A box the document printed as ☑ that the signer unchecked: cover the
+      // printed mark and redraw an empty box in its place.
+      if (cb.printedChecked) {
+        const pad = Math.max(0.5, cb.width * 0.08);
+        page.drawRectangle({ x: cb.x - pad, y: bottom - pad, width: cb.width + pad * 2, height: cb.height + pad * 2, color: rgb(1, 1, 1) });
+        page.drawRectangle({ x: cb.x, y: bottom, width: cb.width, height: cb.height, borderColor: ink, borderWidth: Math.max(0.5, cb.width * 0.06) });
+      }
+      continue;
+    }
+    if (cb.printedChecked) continue; // already printed checked
     if (cb.radioValue !== undefined) {
       const r = Math.min(cb.width, cb.height) * 0.28;
       page.drawCircle({ x: cb.x + cb.width / 2, y: bottom + cb.height / 2, size: r, color: ink });
