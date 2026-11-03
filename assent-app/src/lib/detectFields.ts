@@ -38,6 +38,8 @@ export type DetectedField =
       label?: string;
       hint?: FieldHint;
       acroName?: string;
+      /** Detected copies of one blank (a running page header) share a value. */
+      group?: string;
     })
   | (Box & { kind: "signature"; source: "acroform" | "heuristic"; label?: string; acroName?: string })
   | (Box & {
@@ -84,7 +86,27 @@ export async function detectFields(doc: PdfDocProxy): Promise<DetectionResult> {
       console.warn(`[assent] field detection failed on page ${n}`, err);
     }
   }
+  linkRepeatedHeaders(fields);
   return { fields, acroNames: [...acroNames] };
+}
+
+/**
+ * A blank with the same label at the same spot on several pages is a running
+ * header ("Applicant name" on every page): give those one shared group so a
+ * value typed once fills them all.
+ */
+function linkRepeatedHeaders(fields: DetectedField[]): void {
+  const texts = fields.filter((f): f is Extract<DetectedField, { kind: "text" }> => f.kind === "text" && f.source === "heuristic" && !!f.label);
+  for (const f of texts) {
+    if (f.group) continue;
+    const twins = texts.filter(
+      (o) => o !== f && o.page !== f.page && o.label === f.label && Math.abs(o.x - f.x) < 3 && Math.abs(o.y - f.y) < 3,
+    );
+    if (!twins.length) continue;
+    const key = `header:${f.label}:${Math.round(f.x)}:${Math.round(f.y)}`;
+    f.group = key;
+    for (const t of twins) t.group = key;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +250,16 @@ interface Square {
   checked?: boolean;
 }
 
+/** A light-filled box — the "white field on a tinted panel" layout of designed forms. */
+interface Panel {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 0 (black) – 1 (white). */
+  luma: number;
+}
+
 /** A vertical rule — only used to recognize table cells. */
 interface VLine {
   x: number;
@@ -316,7 +348,7 @@ const BARE_LABEL =
 async function heuristicFields(page: PdfPage, viewport: Viewport, n: number): Promise<DetectedField[]> {
   // Operators first: walking them makes pdf.js load the page's fonts, and
   // the text pass needs font names to read symbol-font checkboxes.
-  const { lines, verticals, squares } = await graphics(page, viewport);
+  const { lines, verticals, squares, cells, fills } = await graphics(page, viewport);
   const runs = await textRuns(page, viewport);
 
   // Underscores, box glyphs and "( )" are text, but they're blanks, not
@@ -367,14 +399,119 @@ async function heuristicFields(page: PdfPage, viewport: Viewport, n: number): Pr
     }
   }
 
+  // "OFFICE USE ONLY" / "ELRC USE ONLY" / "For office use": the panel under
+  // that heading is for staff. Nothing in it is the signer's to fill.
+  const staffOnly: Box[] = [];
+  const headingRe = /\b(use only|for office use|office use|staff use|official use)\b/i;
+  for (const w of words) {
+    if (!headingRe.test(w.str)) continue;
+    const around = fills
+      .filter((f) => f.h > 40 && f.x <= w.x && f.y <= w.y - w.fontSize && f.x + f.w >= w.x + w.width && f.y + f.h >= w.y)
+      .sort((a, b) => a.w * a.h - b.w * b.h)[0];
+    if (around) staffOnly.push({ page: n, x: around.x, y: around.y, width: around.w, height: around.h });
+  }
+
   const out: DetectedField[] = [];
-  const taken: Box[] = [];
+  const taken: Box[] = [...staffOnly];
   const free = (b: Box) => !taken.some((t) => overlap(t, b) > 0.3);
   const take = (f: DetectedField) => {
     if (!free(f)) return;
     taken.push(f);
     out.push(f);
   };
+
+  // Checkboxes first: they're unambiguous, and a box inside a field cell
+  // means the cell is a multiple-choice row, not a write-in.
+  for (const s of [...squares, ...glyphBoxes]) {
+    const right = words.find((w) => Math.abs(w.y - (s.y + s.size * 0.85)) < s.size && w.x >= s.x + s.size && w.x - (s.x + s.size) < 24);
+    take({
+      kind: "checkbox",
+      source: "heuristic",
+      page: n,
+      x: s.x,
+      y: s.y,
+      width: s.size,
+      height: s.size,
+      checked: !!s.checked,
+      printedChecked: !!s.checked,
+      label: right?.str,
+    });
+  }
+
+  const boxes = [...squares, ...glyphBoxes];
+
+  // Designed forms (InDesign, gov templates): each question is a light box on
+  // a tinted panel, with the question printed at the top. The blank is the
+  // empty space under the question — or right of a short "Label:".
+  for (const c of cells) {
+    const inside = words.filter((w) => w.x >= c.x - 1 && w.x + w.width <= c.x + c.w + 1 && w.y > c.y && w.y - w.fontSize * 0.2 <= c.y + c.h);
+    if (boxes.some((b) => b.x >= c.x && b.y >= c.y && b.x + b.size <= c.x + c.w && b.y + b.size <= c.y + c.h)) continue;
+    const baselines = [...new Set(inside.map((w) => Math.round(w.y)))].sort((a, b) => a - b);
+    // A box with a paragraph in it is instructions, not a question.
+    if (baselines.length > 2) continue;
+    const top = inside.filter((w) => Math.round(w.y) === baselines[0]).sort((a, b) => a.x - b.x);
+    // Questions are set flush-left in their box; a centered label is a
+    // column header, and the blanks are in the rows under it.
+    if (top.length && top[0].x - c.x > 12) {
+      const textMid = (top[0].x + top[top.length - 1].x + top[top.length - 1].width) / 2;
+      if (Math.abs(textMid - (c.x + c.w / 2)) < c.w * 0.12) continue;
+    }
+    const labelText = top.map((w) => w.str).join(" ");
+    const fs = clamp(top[0]?.fontSize ?? 10, MIN_FONT_PT, MAX_FONT_PT);
+    const height = fs * 1.15 + 3;
+    const lowest = baselines.length ? Math.max(...inside.map((w) => w.y)) : c.y;
+    const freeTop = baselines.length ? lowest + fs * 0.35 + 1 : c.y + 1;
+    const room = c.y + c.h - 1 - freeTop;
+    const label = norm(labelText);
+    // A question answered by the Yes / No boxes on its own row needs no write-in.
+    if (/\?\s*$/.test(labelText) && top.length) {
+      const by = top[0].y;
+      if (boxes.some((b) => Math.abs(b.y + b.size / 2 - (by - fs * 0.35)) < fs)) continue;
+    }
+    if (room >= height) {
+      if (SIGNATURE_LABEL.test(label) && room >= 24) {
+        take({ kind: "signature", source: "heuristic", page: n, x: c.x + 2, y: freeTop, width: c.w - 4, height: room, label });
+        continue;
+      }
+      take({
+        kind: "text",
+        source: "heuristic",
+        page: n,
+        x: c.x + 3,
+        y: freeTop + Math.min((room - height) / 2, fs * 0.6),
+        width: c.w - 6,
+        height,
+        fontSize: fs,
+        value: "",
+        label: labelText || undefined,
+        hint: hintFor(label) ?? looseHint(label),
+      });
+      continue;
+    }
+    // One line, no room below: the blank runs right of a "Label:" or a
+    // question — never off the end of an ordinary sentence.
+    const wordCount = labelText.trim().split(/\s+/).length;
+    const shortLabel = (/:\s*$/.test(labelText) && wordCount <= 6) || (/\?\s*$/.test(labelText) && wordCount <= 12);
+    if (baselines.length === 1 && top.length && shortLabel) {
+      const last = top[top.length - 1];
+      const startX = last.x + last.width + 4;
+      if (c.x + c.w - 3 - startX >= 50) {
+        take({
+          kind: "text",
+          source: "heuristic",
+          page: n,
+          x: startX,
+          y: Math.max(c.y + 1, last.y - height + fs * 0.3),
+          width: c.x + c.w - 3 - startX,
+          height,
+          fontSize: fs,
+          value: "",
+          label: labelText.replace(/:\s*$/, "") || undefined,
+          hint: hintFor(label) ?? looseHint(label),
+        });
+      }
+    }
+  }
 
   // Table cells: a rule with vertical borders at both ends. The bottom of a
   // cell is where its blank would be — but only if nothing is written
@@ -407,7 +544,13 @@ async function heuristicFields(page: PdfPage, viewport: Viewport, n: number): Pr
 
   const allLines = [
     ...blanks.filter((b) => b.x2 - b.x1 >= 12),
-    ...lines.filter((l) => !cellTopOnly(l) && !occupied(l)),
+    ...lines.filter(
+      (l) =>
+        !cellTopOnly(l) &&
+        !occupied(l) &&
+        // The top or bottom edge of a field box is its border, not a blank.
+        !cells.some((c) => (Math.abs(l.y - c.y - c.h) < 2 || Math.abs(l.y - c.y) < 2) && spanOverlap(l.x1, l.x2, c.x, c.x + c.w) > 0.8),
+    ),
   ];
   allLines.sort((a, b) => a.y - b.y || a.x1 - b.x1);
 
@@ -423,10 +566,22 @@ async function heuristicFields(page: PdfPage, viewport: Viewport, n: number): Pr
     const label = norm(left?.str ?? below?.str ?? "");
     const fontSize = clamp(left?.fontSize ?? below?.fontSize ?? 11, MIN_FONT_PT, MAX_FONT_PT);
     const width = l.x2 - l.x1;
-    // An unlabeled drawn rule spanning much of the page is a separator.
-    if (!l.typed && !label && width > viewport.width * 0.5) continue;
+    // A drawn rule with no label anywhere near it is decoration (panel
+    // edges, separators). Typed underscores are always deliberate.
+    if (!l.typed && !label) continue;
+
     if (SIGNATURE_LABEL.test(label)) {
-      const height = clamp(width * 0.25, 28, 44);
+      // As tall as the ink wants, but never over the text above the line.
+      const textAbove = words
+        .filter((w) => w.y < l.y - 2 && spanOverlap(l.x1, l.x2, w.x, w.x + w.width) > 0 && w !== left)
+        .map((w) => w.y + w.fontSize * 0.25);
+      // …nor over the signature line above it in a stacked block.
+      const linesAbove = [...lines, ...blanks]
+        .filter((o) => o !== l && o.y < l.y - 4 && spanOverlap(l.x1, l.x2, o.x1, o.x2) > 0.2)
+        .map((o) => o.y + 1);
+      const ceilings = [...textAbove, ...linesAbove];
+      const ceiling = ceilings.length ? Math.max(...ceilings) : -Infinity;
+      const height = clamp(Math.min(width * 0.25, l.y - ceiling - 1), 14, 44);
       take({ kind: "signature", source: "heuristic", page: n, x: l.x1, y: l.y - height, width: Math.max(width, 120), height, label });
       continue;
     }
@@ -448,24 +603,11 @@ async function heuristicFields(page: PdfPage, viewport: Viewport, n: number): Pr
     });
   }
 
-  for (const s of [...squares, ...glyphBoxes]) {
-    const right = words.find((w) => Math.abs(w.y - (s.y + s.size * 0.85)) < s.size && w.x >= s.x + s.size && w.x - (s.x + s.size) < 24);
-    take({
-      kind: "checkbox",
-      source: "heuristic",
-      page: n,
-      x: s.x,
-      y: s.y,
-      width: s.size,
-      height: s.size,
-      checked: !!s.checked,
-      printedChecked: !!s.checked,
-      label: right?.str,
-    });
-  }
-
   // "Name:" followed by nothing — a blank the author left with tabs or spaces.
+  // Labels inside a field box were already handled by the box.
+  const inCell = (w: Run) => cells.some((c) => w.x >= c.x - 1 && w.x + w.width <= c.x + c.w + 1 && w.y > c.y && w.y <= c.y + c.h);
   for (const w of words) {
+    if (inCell(w)) continue;
     const m = /^(.{1,30}?):\s*$/.exec(w.str);
     if (!m) continue;
     const label = norm(m[1]);
@@ -503,6 +645,12 @@ function norm(s: string): string {
   return s.toLowerCase().replace(/[:*]/g, "").replace(/\s+/g, " ").trim();
 }
 
+/** Question-style labels ("What is your email address?") — only the unambiguous ones. */
+function looseHint(label: string): FieldHint | undefined {
+  if (/\be-?mail\b/.test(label)) return "email";
+  return undefined;
+}
+
 function hintFor(label: string): FieldHint | undefined {
   const l = norm(label);
   if (DATE_LABEL.test(l)) return "date";
@@ -531,10 +679,21 @@ function nearestLeft(words: Run[], x: number, maxGap = 160): Run | undefined {
   return best;
 }
 
-/** A caption printed just under a line — the "Signature   Date" row of a signature block. */
+/**
+ * A caption printed just under a line — the "Signature   Date" row of a
+ * signature block. Captions are a few words; a sentence under a rule is just
+ * the next paragraph.
+ */
 function captionBelow(words: Run[], l: HLine): Run | undefined {
   return words.find(
-    (w) => w.y - w.fontSize > l.y - 2 && w.y - w.fontSize - l.y < 10 && spanOverlap(w.x, w.x + w.width, l.x1, l.x2) > 0.6,
+    (w) =>
+      w.y - w.fontSize > l.y - 2 &&
+      w.y - w.fontSize - l.y < 10 &&
+      spanOverlap(w.x, w.x + w.width, l.x1, l.x2) > 0.6 &&
+      w.str.trim().split(/\s+/).length <= 4 &&
+      // Flush with the line's start, or centered under it — not a word
+      // that happens to fall under it mid-sentence.
+      (Math.abs(w.x - l.x1) < 12 || Math.abs(w.x + w.width / 2 - (l.x1 + l.x2) / 2) < (l.x2 - l.x1) * 0.15),
   );
 }
 
@@ -587,7 +746,7 @@ async function textRuns(page: PdfPage, viewport: Viewport): Promise<Run[]> {
 async function graphics(
   page: PdfPage,
   viewport: Viewport,
-): Promise<{ lines: HLine[]; verticals: VLine[]; squares: Square[] }> {
+): Promise<{ lines: HLine[]; verticals: VLine[]; squares: Square[]; cells: Panel[]; fills: Panel[] }> {
   const { OPS } = pdfjs;
   const list = await page.getOperatorList();
   const lines: HLine[] = [];
@@ -600,8 +759,18 @@ async function graphics(
   const shortH: HLine[] = [];
   const shortV: VLine[] = [];
 
+  // Every filled rect, in paint order, with its color: cells are light boxes
+  // painted over something darker, and a white rule on white is invisible.
+  const fills: Panel[] = [];
+  const whiteSquares: Square[] = [];
+
   let ctm = viewport.transform.slice();
-  const stack: number[][] = [];
+  // pdf.js normalizes every color space to RGB bytes in the operator list.
+  let fillLuma = 0;
+  let strokeLuma = 0;
+  const stack: { ctm: number[]; fillLuma: number; strokeLuma: number }[] = [];
+  const luma = (r: number, g: number, b: number) => (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const INVISIBLE = 0.97;
   const apply = (x: number, y: number) => {
     const p = pdfjs.Util.applyTransform([x, y], ctm);
     return { x: p[0], y: p[1] };
@@ -616,6 +785,15 @@ async function graphics(
   /** Rect in viewport space → underline or checkbox candidate. */
   const isBoxSize = (w: number, h: number) => w >= 5 && w <= 28 && Math.abs(w - h) <= Math.max(1.5, w * 0.12);
   const classifyRect = (x: number, y: number, w: number, h: number, stroked: boolean) => {
+    const paint = stroked ? strokeLuma : fillLuma;
+    if (!stroked) fills.push({ x, y, w, h, luma: fillLuma });
+    if (paint > INVISIBLE) {
+      // White paint: never a rule or a drawn box outline — but a white square
+      // punched into a tinted panel is a checkbox.
+      // (Small ones only: a 26pt white square is a one-letter write-in cell.)
+      if (!stroked && isBoxSize(w, h) && w <= 16) whiteSquares.push({ x, y, size: (w + h) / 2 });
+      return;
+    }
     if (h <= 2.5 && w >= MIN_LINE_PT && w < viewport.width * 0.9) {
       lines.push({ x1: x, x2: x + w, y: y + h });
     } else if (h <= 2.5 && w >= 4 && w < MIN_LINE_PT) {
@@ -644,7 +822,7 @@ async function graphics(
         classifyRect(box.x, box.y, box.w, box.h, stroked);
         continue;
       }
-      if (stroked) {
+      if (stroked && strokeLuma <= INVISIBLE) {
         for (let i = 1; i < s.pts.length; i++) {
           const p = s.pts[i - 1];
           const q = s.pts[i];
@@ -670,21 +848,31 @@ async function graphics(
     const args = list.argsArray[i];
     switch (fn) {
       case OPS.save:
-        stack.push(ctm);
+        stack.push({ ctm, fillLuma, strokeLuma });
         break;
-      case OPS.restore:
-        ctm = stack.pop() ?? ctm;
+      case OPS.restore: {
+        const st = stack.pop();
+        if (st) ({ ctm, fillLuma, strokeLuma } = st);
+        break;
+      }
+      case OPS.setFillRGBColor:
+        fillLuma = luma(args[0], args[1], args[2]);
+        break;
+      case OPS.setStrokeRGBColor:
+        strokeLuma = luma(args[0], args[1], args[2]);
         break;
       case OPS.transform:
         ctm = pdfjs.Util.transform(ctm, args);
         break;
       case OPS.paintFormXObjectBegin:
-        stack.push(ctm);
+        stack.push({ ctm, fillLuma, strokeLuma });
         if (Array.isArray(args[0]) && args[0].length === 6) ctm = pdfjs.Util.transform(ctm, args[0]);
         break;
-      case OPS.paintFormXObjectEnd:
-        ctm = stack.pop() ?? ctm;
+      case OPS.paintFormXObjectEnd: {
+        const st = stack.pop();
+        if (st) ({ ctm, fillLuma, strokeLuma } = st);
         break;
+      }
       case OPS.constructPath: {
         // pdf.js 4.x: [ops[], flat coords[], minMax]
         const [ops, coords] = args as [number[], number[]];
@@ -747,7 +935,36 @@ async function graphics(
     if (side(top.x1) && side(top.x2)) squares.push({ x: top.x1, y: top.y, size: span });
   }
 
-  return { lines: dedupeLines(lines), verticals, squares: dedupeSquares(squares) };
+  // Visible = painted over a darker fill that was there first.
+  const onDarker = (b: { x: number; y: number; w: number; h: number }, idx: number, l: number) =>
+    fills.some(
+      (f, j) =>
+        j < idx &&
+        f.luma < l - 0.04 &&
+        f.x <= b.x + 0.5 &&
+        f.y <= b.y + 0.5 &&
+        f.x + f.w >= b.x + b.w - 0.5 &&
+        f.y + f.h >= b.y + b.h - 0.5,
+    );
+  for (const sq of whiteSquares) {
+    const idx = fills.findIndex((f) => Math.abs(f.x - sq.x) < 0.01 && Math.abs(f.y - sq.y) < 0.01);
+    if (onDarker({ x: sq.x, y: sq.y, w: sq.size, h: sq.size }, idx, 1)) squares.push(sq);
+  }
+  const cells = fills.filter(
+    (f, i) =>
+      f.luma >= 0.75 &&
+      f.w >= 18 &&
+      f.h >= 12 &&
+      f.h <= 220 &&
+      f.w < viewport.width * 0.95 &&
+      (f.luma < INVISIBLE || onDarker(f, i, f.luma)),
+  );
+  // Innermost only: a panel that contains other cells is a container.
+  const innermost = cells.filter(
+    (c) => !cells.some((o) => o !== c && o.x >= c.x - 0.5 && o.y >= c.y - 0.5 && o.x + o.w <= c.x + c.w + 0.5 && o.y + o.h <= c.y + c.h + 0.5 && o.w * o.h < c.w * c.h),
+  );
+
+  return { lines: dedupeLines(lines), verticals, squares: dedupeSquares(squares), cells: innermost, fills };
 }
 
 function dedupeSquares(squares: Square[]): Square[] {
@@ -760,7 +977,10 @@ function dedupeSquares(squares: Square[]): Square[] {
 }
 
 function polyAsRect(pts: { x: number; y: number }[]): { x: number; y: number; w: number; h: number } | null {
-  if (pts.length < 4 || pts.length > 5) return null;
+  // InDesign traces boxes with extra points — 13 for a square with stepped
+  // corners. Still a rect if every point is on the boundary, every segment is
+  // axis-aligned, and the walk covers the perimeter (checked below).
+  if (pts.length < 4 || pts.length > 24) return null;
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   const x = Math.min(...xs);
@@ -769,13 +989,23 @@ function polyAsRect(pts: { x: number; y: number }[]): { x: number; y: number; w:
   const h = Math.max(...ys) - y;
   if (w < 1 || h < 1) return null;
   const tol = 0.6;
+  // Points may start mid-edge (InDesign does), so: every point on the
+  // boundary, every segment axis-aligned, and the segments walk (nearly) the
+  // whole perimeter — that's a closed rectangle, not an L or a bracket.
   const onEdge = (p: { x: number; y: number }) =>
-    (Math.abs(p.x - x) < tol || Math.abs(p.x - x - w) < tol) && (Math.abs(p.y - y) < tol || Math.abs(p.y - y - h) < tol);
+    Math.abs(p.x - x) < tol || Math.abs(p.x - x - w) < tol || Math.abs(p.y - y) < tol || Math.abs(p.y - y - h) < tol;
   if (!pts.every(onEdge)) return null;
+  let walked = 0;
   for (let i = 1; i < pts.length; i++) {
-    const axis = Math.abs(pts[i].x - pts[i - 1].x) < tol || Math.abs(pts[i].y - pts[i - 1].y) < tol;
-    if (!axis) return null;
+    const dx = Math.abs(pts[i].x - pts[i - 1].x);
+    const dy = Math.abs(pts[i].y - pts[i - 1].y);
+    if (dx >= tol && dy >= tol) return null;
+    walked += dx + dy;
   }
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  walked += Math.abs(first.x - last.x) + Math.abs(first.y - last.y); // implicit close
+  if (walked < 2 * (w + h) * 0.95) return null;
   return { x, y, w, h };
 }
 

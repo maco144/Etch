@@ -67,7 +67,7 @@ export default function SignatureField({
       // pointerdown-driven drag at all), stop it from bubbling to the page's
       // place-a-field handler, same as TextFieldOverlay's `swallow` wrapper.
       onClick={(e) => e.stopPropagation()}
-      className={`absolute border-2 border-dashed rounded-sm touch-none ${
+      className={`group absolute border-2 border-dashed rounded-sm touch-none ${
         field.signed
           ? "border-success bg-success/5"
           : field.suggested
@@ -107,7 +107,9 @@ export default function SignatureField({
             e.stopPropagation();
             onRemove();
           }}
-          className="pointer-events-auto absolute -top-7 right-0 text-xs text-text-dim hover:text-danger"
+          // Hover-only, like the text-field toolbar: a detected form can put
+          // several suggestions on one page.
+          className="pointer-events-auto absolute -top-7 right-0 text-xs text-text-dim hover:text-danger opacity-0 group-hover:opacity-100 focus:opacity-100"
         >
           remove field
         </button>

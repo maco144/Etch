@@ -92,6 +92,10 @@ export interface TextFieldValue extends FieldLocation {
   hint?: FieldHint;
   /** The AcroForm field this came from; widgets sharing a name share a value. */
   acroName?: string;
+  /** Detected copies of one blank on several pages (a running header) share a value. */
+  group?: string;
+  /** Value was filled in by Assent (today's date), not typed. Cleared on edit. */
+  prefilled?: boolean;
 }
 
 export interface CheckboxFieldValue extends FieldLocation {

@@ -312,15 +312,23 @@ export default function Sign() {
   const updateTextField = useCallback((next: TextFieldValue) => {
     setTextFields((prev) =>
       prev.map((tf) => {
-        if (tf.id === next.id) return next;
-        // Widgets of one AcroForm field are one value shown in several places.
-        if (next.acroName && tf.acroName === next.acroName && tf.value !== next.value) {
-          return { ...tf, value: next.value };
+        // Typing over an auto-filled date makes it the signer's own value.
+        if (tf.id === next.id) return next.value !== tf.value ? { ...next, prefilled: false } : next;
+        // Widgets of one AcroForm field — or one running header detected on
+        // every page — are one value shown in several places.
+        const linked =
+          (next.acroName && tf.acroName === next.acroName) || (next.group && tf.group === next.group);
+        if (linked && tf.value !== next.value) {
+          if (!tf.autoFit) return { ...tf, value: next.value };
+          const page = pagesByNumber.get(tf.page);
+          if (!page) return { ...tf, value: next.value };
+          const { width } = fitTextBox(next.value, tf.fontSize, page.widthPx / page.widthPt, page.heightPx / page.heightPt, tf.emptyWidth);
+          return { ...tf, value: next.value, width: Math.min(width, page.widthPt - tf.x) };
         }
         return tf;
       }),
     );
-  }, []);
+  }, [pagesByNumber]);
   const toggleCheckbox = useCallback((id: string) => {
     setCheckboxes((prev) => {
       const hit = prev.find((c) => c.id === id);
@@ -367,17 +375,20 @@ export default function Sign() {
       for (const f of found) {
         const loc = { page: f.page, x: f.x, y: f.y, width: f.width, height: f.height };
         if (f.kind === "text") {
-          const value = f.value || (f.hint === "date" ? today : "");
+          const prefilled = !f.value && f.hint === "date";
+          const value = f.value || (prefilled ? today : "");
           const guessed = f.source === "heuristic";
           const text: TextFieldValue = {
             id: crypto.randomUUID(),
             ...loc,
             fontSize: f.fontSize,
             value,
+            prefilled: prefilled || undefined,
             detected: true,
             label: f.label ? f.label.replace(/^\w/, (c) => c.toUpperCase()) : undefined,
             hint: f.hint,
             acroName: f.acroName,
+            group: f.group,
             // A guessed blank hugs what's typed into it, starting at the
             // length of the line it was found on. A form widget keeps the box
             // the form's author drew.
@@ -575,9 +586,20 @@ export default function Sign() {
   // complete document on its own, and the chain, not the ink, is what proves
   // it. Empty text fields don't count; flattenSignedPdf skips them, so a
   // document with nothing but blank boxes would finalize as an unchanged copy.
+  // An auto-filled date on the same row as a signature box belongs to that
+  // signature: it goes into the PDF only if the signature was given. Without
+  // this, every "Date:" beside an unused second-signer or staff line would be
+  // stamped with today. Dates the signer typed, and standalone dates, stay.
   const filledTextFields = useMemo(
-    () => textFields.filter((f) => f.value.trim().length > 0),
-    [textFields],
+    () =>
+      textFields.filter((f) => {
+        if (!f.value.trim()) return false;
+        if (!f.prefilled) return true;
+        const bottom = f.y + f.height;
+        const row = signatureFields.filter((s) => s.page === f.page && Math.abs(s.y + s.height - bottom) < 14);
+        return row.length === 0 || row.some((s) => s.signed);
+      }),
+    [textFields, signatureFields],
   );
   const checkedBoxes = useMemo(() => checkboxes.filter((c) => c.checked), [checkboxes]);
   // Unsigned suggestions don't block — they're dropped at finalize.
@@ -597,7 +619,7 @@ export default function Sign() {
           location: { page: f.page, x: f.x, y: f.y, width: f.width, height: f.height },
           png: f.signature!.pngDataUrl,
         })),
-        textFields,
+        textFields: filledTextFields,
         checkboxes,
         // Every AcroForm field still on the page is drawn by us, so its
         // original widget goes. A field the signer removed keeps its widget.
@@ -1140,10 +1162,20 @@ export default function Sign() {
         )}
 
         {showPad && (
-          <SignaturePad
-            onSubmit={onDrawnSubmit}
-            onCancel={() => setShowPad(false)}
-          />
+          // A modal, not a sidebar card: a detected signature box can be on
+          // page 8 of a long form, and the bottom of the sidebar would be
+          // off-screen from there.
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Draw your signature"
+            onKeyDown={(e) => e.key === "Escape" && setShowPad(false)}
+          >
+            <div className="w-full max-w-xl">
+              <SignaturePad onSubmit={onDrawnSubmit} onCancel={() => setShowPad(false)} />
+            </div>
+          </div>
         )}
       </aside>
     </div>

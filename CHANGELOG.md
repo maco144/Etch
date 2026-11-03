@@ -71,7 +71,14 @@ still reads `0.2.0` — bump it before tagging the next release (see
   their left), checkboxes in every form Word produces — Wingdings / Wingdings 2
   symbols, ☐ glyphs, content controls, legacy form checkboxes, drawn squares —
   plus `( )` and `[ ]` blanks, and bare labels like `Name:`. A box the document
-  prints as ☑ comes in checked; unchecking it paints the printed mark out. Date blanks prefill today; name and email blanks follow
+  prints as ☑ comes in checked; unchecking it paints the printed mark out.
+  Designed forms (InDesign / government templates — light field boxes on a
+  tinted panel, question printed at the top of each box) get a field under
+  each question; centered column headers, yes/no-only questions, paragraph
+  boxes and "office use only" panels are left alone. A blank repeated at the
+  same spot on every page (a running "Applicant name" header) is one value.
+  An auto-filled date beside a signature line is kept only if that line was
+  signed. Date blanks prefill today; name and email blanks follow
   the identity panel. Detected signature boxes are suggestions: they don't block
   finishing and only reach the chain when signed.
 - Assent checkbox fields, placeable by hand as well as detected.
@@ -92,6 +99,8 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Fixed
 
+- The drawn-signature pad opens as a modal instead of at the bottom of the
+  sidebar, where it was off-screen when signing deep in a long document.
 - Drawn signatures are stamped with a transparent background, so the ink no
   longer erases the signature line it's placed on.
 - Index `idx_records_ns_ext` on `(namespace_id, external_id, record_type)` keeps
