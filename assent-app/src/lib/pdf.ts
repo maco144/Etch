@@ -66,10 +66,23 @@ export interface TextFieldValue extends FieldLocation {
   id: string;
   value: string;
   fontSize: number;
+  /**
+   * UI-only: the box tracks the typed text as it changes. On by default;
+   * a manual resize turns it off, the "fit" control turns it back on.
+   */
+  autoFit?: boolean;
 }
 
 /** Horizontal gap between a text field's left edge and its first glyph, in pt. */
 export const TEXT_FIELD_INSET_PT = 2;
+/** Width of an empty field, so there's something to click and type into. */
+export const TEXT_FIELD_EMPTY_WIDTH_PT = 120;
+/** Line box around the glyphs, as a multiple of font size. */
+export const TEXT_FIELD_LINE_HEIGHT = 1.15;
+/** Overlay input border (Tailwind border-2), in screen px. */
+export const TEXT_FIELD_BORDER_PX = 2;
+// Room for the caret past the last glyph, so a fitted field doesn't scroll.
+const CARET_SLACK_PT = 1;
 
 // The same AFM metrics flattenSignedPdf's embedded Helvetica uses, so a field
 // trimmed in the UI hugs exactly the text that gets baked into the PDF.
@@ -77,6 +90,24 @@ let helvetica: StandardFontEmbedder | null = null;
 export function measureHelvetica(text: string, size: number): number {
   helvetica ??= StandardFontEmbedder.for(StandardFonts.Helvetica as unknown as FontNames);
   return helvetica.widthOfTextAtSize(text, size);
+}
+
+/**
+ * The box that exactly holds `text` at `fontSize`: one line tall, ending at
+ * the last character. `scaleX`/`scaleY` are page px-per-pt, needed because
+ * the overlay's border is in screen px. Empty text gets the empty width.
+ */
+export function fitTextBox(
+  text: string,
+  fontSize: number,
+  scaleX: number,
+  scaleY: number,
+): { width: number; height: number } {
+  const width = text.trim()
+    ? measureHelvetica(text, fontSize) + TEXT_FIELD_INSET_PT * 2 + CARET_SLACK_PT + (TEXT_FIELD_BORDER_PX * 2) / scaleX
+    : TEXT_FIELD_EMPTY_WIDTH_PT;
+  const height = fontSize * TEXT_FIELD_LINE_HEIGHT + (TEXT_FIELD_BORDER_PX * 2) / scaleY;
+  return { width, height };
 }
 
 export interface SignatureFieldValue extends FieldLocation {

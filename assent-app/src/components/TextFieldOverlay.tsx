@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react";
-import { TEXT_FIELD_INSET_PT, measureHelvetica, type TextFieldValue } from "../lib/pdf";
+import {
+  TEXT_FIELD_BORDER_PX,
+  TEXT_FIELD_INSET_PT,
+  TEXT_FIELD_LINE_HEIGHT,
+  fitTextBox,
+  type TextFieldValue,
+} from "../lib/pdf";
 import { useDraggableResizable, type Corner } from "../hooks/useDraggableResizable";
 
 interface Props {
@@ -13,12 +19,6 @@ interface Props {
   onChange: (next: TextFieldValue) => void;
   onRemove: (id: string) => void;
 }
-
-const BORDER_PX = 2; // border-2 on the input
-// Room for the caret past the last glyph, so a fitted field doesn't scroll.
-const CARET_SLACK_PT = 1;
-// Line box around the glyphs, as a multiple of font size (matches lineHeight below).
-const LINE_HEIGHT = 1.15;
 
 const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
 const CORNER_STYLE: Record<Corner, React.CSSProperties> = {
@@ -59,20 +59,26 @@ export default function TextFieldOverlay({
   const height = field.height * scaleY;
   const fontPx = field.fontSize * scaleY;
 
-  // Shrink-wrap the box to the typed text (or grow it, if the text overflows),
-  // so it stops covering whatever on the page sits next to it. Left edge and
-  // vertical center stay put — the text doesn't move, only the box around it.
+  // Auto-fit: the box hugs the text as you type, so it never covers more of
+  // the page than the text itself will. The left edge stays put; width tracks
+  // the value (trailing spaces included while typing, so the caret never
+  // scrolls out of view) and is clamped to the page edge.
+  const withValue = (value: string): TextFieldValue => {
+    if (!field.autoFit) return { ...field, value };
+    const { width } = fitTextBox(value, field.fontSize, scaleX, scaleY);
+    return { ...field, value, width: Math.min(width, pageWidthPt - field.x) };
+  };
+
+  // After a manual resize: snap the box back to the text in both directions
+  // and turn auto-fit back on.
+  // Trailing spaces draw nothing in the PDF, so they're dropped — the box
+  // ends at the last glyph. Vertical center stays put.
   const fit = () => {
-    // Trailing spaces draw nothing in the PDF but still scroll the input, so
-    // fitting drops them from the value too — the box ends at the last glyph.
     const text = field.value.trimEnd();
-    if (!text.trim()) return;
-    const width =
-      measureHelvetica(text, field.fontSize) + TEXT_FIELD_INSET_PT * 2 + CARET_SLACK_PT + (BORDER_PX * 2) / scaleX;
-    const height = field.fontSize * LINE_HEIGHT + (BORDER_PX * 2) / scaleY;
+    const { width, height } = fitTextBox(text, field.fontSize, scaleX, scaleY);
     const cy = field.y + field.height / 2;
     const y = Math.max(0, Math.min(pageHeightPt - height, cy - height / 2));
-    onChange({ ...field, value: text, y, width: Math.min(width, pageWidthPt - field.x), height });
+    onChange({ ...field, value: text, autoFit: true, y, width: Math.min(width, pageWidthPt - field.x), height });
     if (inputRef.current) inputRef.current.scrollLeft = 0;
   };
 
@@ -87,7 +93,14 @@ export default function TextFieldOverlay({
     pageWidthPx,
     pageHeightPx,
     disabled: !editable,
-    onChange: (rect) => onChange({ ...field, ...rect }),
+    // A move keeps the size; a resize means the user wants this exact box,
+    // so auto-fit stops fighting them until they press "fit" again.
+    onChange: (rect) =>
+      onChange({
+        ...field,
+        ...rect,
+        autoFit: field.autoFit && rect.width === field.width && rect.height === field.height,
+      }),
   });
 
   // Stop PDF click-to-place handler from firing when the user interacts with
@@ -107,7 +120,12 @@ export default function TextFieldOverlay({
         type="text"
         value={field.value}
         disabled={!editable}
-        onChange={(e) => onChange({ ...field, value: e.target.value })}
+        onChange={(e) => onChange(withValue(e.target.value))}
+        // Leaving the field trims trailing spaces off an auto-fit box. Width
+        // only, so nothing under the pointer shifts on the way to a click.
+        onBlur={() => {
+          if (field.autoFit && field.value !== field.value.trimEnd()) onChange(withValue(field.value.trimEnd()));
+        }}
         onKeyDown={swallow}
         placeholder="Type here…"
         className={`w-full h-full bg-white/95 border-2 ${
@@ -116,10 +134,10 @@ export default function TextFieldOverlay({
         style={{
           fontSize: `${fontPx}px`,
           fontFamily: "Helvetica, Arial, sans-serif",
-          lineHeight: LINE_HEIGHT,
+          lineHeight: TEXT_FIELD_LINE_HEIGHT,
           // Same inset the PDF text is drawn at, so the overlay is a preview
           // of the output and a fitted box doesn't clip the last glyph.
-          padding: `0 ${Math.max(0, TEXT_FIELD_INSET_PT * scaleX - BORDER_PX)}px`,
+          padding: `0 ${Math.max(0, TEXT_FIELD_INSET_PT * scaleX - TEXT_FIELD_BORDER_PX)}px`,
         }}
       />
       {editable && (
@@ -131,18 +149,19 @@ export default function TextFieldOverlay({
           >
             ⠿ move
           </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              fit();
-            }}
-            disabled={!field.value.trim()}
-            title="Trim the box to the text"
-            className="text-text-dim hover:text-accent bg-bg/80 px-1 rounded disabled:opacity-40 disabled:hover:text-text-dim"
-          >
-            fit
-          </button>
+          {!field.autoFit && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                fit();
+              }}
+              title="Snap the box back to the text"
+              className="text-text-dim hover:text-accent bg-bg/80 px-1 rounded"
+            >
+              fit
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {

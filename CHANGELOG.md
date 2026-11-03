@@ -69,10 +69,11 @@ still reads `0.2.0` — bump it before tagging the next release (see
 - The verification stamp shrank from a full-width banner to a corner badge.
 - A signed Assent signature field can still be moved and resized while placing;
   the finalized PDF contain-fits the ink into the box instead of stretching it.
-- Assent text fields start a third narrower (120pt), and a **fit** button trims
-  the box to the typed text in both directions, dropping trailing spaces, so a
-  field stops covering the page around it. Fields resize down to one glyph by
-  one line, and the finalized text is vertically centered in its box.
+- Assent text fields fit their text by default: one line tall, 120pt wide while
+  empty, then hugging the typed text as it grows and shrinks (trailing spaces
+  trimmed on blur), so a field stops covering the page around it. A manual resize
+  pins the box; a **fit** button snaps it back. Fields resize down to one glyph
+  by one line, and the finalized text is vertically centered in its box.
 - `POST /v1/proof/batch` accepts up to 1000 items per request.
 
 ### Fixed

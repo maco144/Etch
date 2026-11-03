@@ -25,8 +25,12 @@ import {
 import { takePending } from "../lib/handoff";
 import { newDocumentId, sha256, toArrayBuffer } from "../lib/hash";
 import { pathFor } from "../lib/routing";
-import { downloadBytes, downloadJson, flattenSignedPdf } from "../lib/pdf";
-import type { RenderedPage, SignatureFieldValue, TextFieldValue } from "../lib/pdf";
+import {
+  downloadBytes,
+  downloadJson,
+  fitTextBox,
+  flattenSignedPdf,
+  type RenderedPage, type SignatureFieldValue, type TextFieldValue } from "../lib/pdf";
 import { signWithPasskey, type CapturedSignature } from "../lib/signatures";
 
 type PlacementMode = "signature" | "text";
@@ -36,8 +40,6 @@ interface Stage {
   signer: { email: string; name: string };
 }
 
-const TEXT_FIELD_WIDTH_PT = 120;
-const TEXT_FIELD_HEIGHT_PT = 22;
 const TEXT_FIELD_FONT_PT = 12;
 
 const DEFAULT_STAMP_WIDTH_PT = 200;
@@ -243,12 +245,19 @@ export default function Sign() {
 
       if (placementMode === "text") {
         const id = crypto.randomUUID();
+        const box = fitTextBox(
+          "",
+          TEXT_FIELD_FONT_PT,
+          target.widthPx / target.widthPt,
+          target.heightPx / target.heightPt,
+        );
         const next: TextFieldValue = {
           id,
           page,
-          ...place(TEXT_FIELD_WIDTH_PT, TEXT_FIELD_HEIGHT_PT),
+          ...place(box.width, box.height),
           fontSize: TEXT_FIELD_FONT_PT,
           value: "",
+          autoFit: true,
         };
         setTextFields((prev) => [...prev, next]);
         setAutoFocusTextId(id);
