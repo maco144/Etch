@@ -240,7 +240,12 @@ yields neither the document nor the right to replace it.
 ### Auth
 
 - **V1 + V2:** Anonymous, namespace pinned to `assent/public`.
-  - Events: 20 per IP per hour
+  - New documents (an `event_index` 0 event): 30 per IP per hour. This is the
+    only per-IP knob that matters: every document is capped at 32 events that
+    must arrive in index order, so an IP can only multiply load by starting
+    documents.
+  - Follow-on events (fields, signatures, finalize, a recipient's events on a
+    sender's chain): 600 per IP per hour, a flood guard
   - Uploads: 10 per IP per hour, 15 MB per document (10 MB plaintext plus AES-GCM
     overhead plus room for a signed re-upload that adds a signature image)
   - Document replacement additionally requires the capability token issued at

@@ -15,8 +15,8 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 - **Etch Assent** (`/v1/assent/*`) — client-side PDF signing with an anonymous
   provenance chain. The PDF never reaches the server; only hashes and event
-  metadata do. Events are pinned to the `assent/public` namespace, rate limited
-  to 20 events per IP per hour, capped at 32 events per document.
+  metadata do. Events are pinned to the `assent/public` namespace and capped at
+  32 per document; per IP, 30 new documents and 600 follow-on events an hour.
   - `POST /v1/assent/stamp` — commit an `assent.event`
   - `GET /v1/assent/chain/{document_id}` — event chain with integrity check
   - `GET /v1/assent/records/{record_id}` and `…/proof` — public receipt + inclusion proof
@@ -99,6 +99,12 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Fixed
 
+- Assent's rate limit counted every event, so one long form with several
+  signature lines used most of an office NAT's hourly budget. The per-IP limit
+  is now on new documents (30/hour), with a 600/hour flood guard on follow-on
+  events. A refused `created` event no longer leaves the session dead: the
+  client retries it before the next write, and a 429 explains itself instead
+  of surfacing the raw API detail.
 - The drawn-signature pad opens as a modal instead of at the bottom of the
   sidebar, where it was off-screen when signing deep in a long document.
 - Drawn signatures are stamped with a transparent background, so the ink no

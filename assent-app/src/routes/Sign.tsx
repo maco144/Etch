@@ -83,6 +83,8 @@ export default function Sign() {
   const lastHashRef = useRef<string | null>(null);
   const eventIndexRef = useRef(0);
   const receiptRef = useRef<AssentReceipt | null>(null);
+  const createdArgsRef = useRef<{ index: number; parentHash: string | null } | null>(null);
+  const createdAttemptRef = useRef<Promise<boolean> | null>(null);
 
   const [activePage, setActivePage] = useState(1);
   const [pagesByNumber, setPagesByNumber] = useState<Map<number, RenderedPage>>(new Map());
@@ -216,16 +218,9 @@ export default function Sign() {
           }
         }
 
-        const receipt = await stampEvent(buildEvent({
-          documentId,
-          eventType: "created",
-          documentHash: hash,
-          parentHash,
-          eventIndex: createdIndex,
-        }));
         if (cancelled) return;
-        eventIndexRef.current = createdIndex + 1;
-        receiptRef.current = receipt;
+        createdArgsRef.current = { index: createdIndex, parentHash };
+        await ensureCreated();
       } catch (err) {
         if (cancelled) return;
         setError(errorText(err, "Could not register the document with Etch."));
@@ -234,7 +229,48 @@ export default function Sign() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bytes, documentId, isRecipient]);
+
+  /**
+   * Stamp `created` if it hasn't landed yet. Every later event chains onto
+   * it, so if the first attempt failed (rate limit, network blip on load)
+   * each later event would be refused too and the session would be silently
+   * dead. Instead, anything that writes to the chain calls this first and
+   * the document recovers as soon as the server accepts it. Concurrent
+   * callers share one attempt.
+   */
+  const ensureCreated = (): Promise<boolean> => {
+    if (receiptRef.current) return Promise.resolve(true);
+    if (createdAttemptRef.current) return createdAttemptRef.current;
+    const args = createdArgsRef.current;
+    const hash = originalHashRef.current;
+    if (!args || !hash) return Promise.resolve(false);
+    const attempt = (async () => {
+      try {
+        const receipt = await stampEvent(
+          buildEvent({
+            documentId,
+            eventType: "created",
+            documentHash: hash,
+            parentHash: args.parentHash,
+            eventIndex: args.index,
+          }),
+        );
+        eventIndexRef.current = args.index + 1;
+        receiptRef.current = receipt;
+        setError(null);
+        return true;
+      } catch (err) {
+        setError(errorText(err, "Could not register the document with Etch."));
+        return false;
+      } finally {
+        createdAttemptRef.current = null;
+      }
+    })();
+    createdAttemptRef.current = attempt;
+    return attempt;
+  };
 
   // --- 3. Placement on the active page -----------------------------------
 
@@ -469,6 +505,7 @@ export default function Sign() {
 
   const emitFieldAdded = async (loc: FieldLocation) => {
     if (!lastHashRef.current) return;
+    if (!(await ensureCreated())) return;
     try {
       await stampEvent(
         buildEvent({
@@ -533,6 +570,7 @@ export default function Sign() {
     if (!target || !lastHashRef.current) return;
     setBusyMsg("Stamping signature…");
     try {
+      if (!(await ensureCreated())) return;
       if (target.suggested) {
         // Accepting a suggestion is placing it: same field_added a click
         // would have written, then the signature on top.
@@ -613,6 +651,10 @@ export default function Sign() {
     if (!canFinish) return;
     setBusyMsg("Finalizing PDF…");
     try {
+      if (!(await ensureCreated())) {
+        setBusyMsg(null);
+        return;
+      }
       const flattened = await flattenSignedPdf({
         originalBytes: bytes,
         signatures: signedFields.map((f) => ({
@@ -1261,6 +1303,12 @@ function buildEvent(args: {
 }
 
 function errorText(err: unknown, fallback: string): string {
+  if (err instanceof EtchApiError && err.status === 429) {
+    return (
+      "Etch is limiting how many documents your network can register right now. " +
+      "Nothing you've placed is lost — try again in a few minutes and it will pick up where you left off."
+    );
+  }
   if (err instanceof EtchApiError) return `${fallback} (${err.status}: ${err.message})`;
   if (err instanceof Error) return `${fallback} ${err.message}`;
   return fallback;

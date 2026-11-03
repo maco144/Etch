@@ -49,11 +49,12 @@ async def http():
     app, engine, originals = _make_app()
 
     from etch.models import Base
-    from etch.assent_api import ensure_assent_namespace, _limiter
+    from etch.assent_api import ensure_assent_namespace, _limiter, _followon_limiter
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await ensure_assent_namespace()
     _limiter.reset()
+    _followon_limiter.reset()
 
     transport = httpx.ASGITransport(app=app)
     client = httpx.AsyncClient(transport=transport, base_url="http://testserver")
@@ -240,11 +241,11 @@ class TestStamp:
         chain = await http.get("/v1/assent/chain/doc_abc123")
         assert chain.json()["chain_intact"] is False
 
-    async def test_rate_limit(self, http: httpx.AsyncClient):
-        from etch.assent_api import RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECONDS
+    async def test_rate_limit_new_documents(self, http: httpx.AsyncClient):
+        from etch.assent_api import NEW_DOCUMENTS_PER_WINDOW, RATE_LIMIT_WINDOW_SECONDS
 
         # Distinct documents so the per-document cap doesn't kick in first.
-        for i in range(RATE_LIMIT_MAX_REQUESTS):
+        for i in range(NEW_DOCUMENTS_PER_WINDOW):
             res = await http.post(
                 "/v1/assent/stamp",
                 json=_event(
@@ -261,6 +262,46 @@ class TestStamp:
         assert res.status_code == 429
         # Well-behaved clients read Retry-After to back off cleanly.
         assert res.headers.get("retry-after") == str(RATE_LIMIT_WINDOW_SECONDS)
+        assert "new documents" in res.json()["detail"]
+
+    async def test_signing_a_long_form_does_not_spend_the_new_document_budget(self, http: httpx.AsyncClient):
+        """A 12-page form with five signature lines is ~12 events; an office
+        behind one NAT must be able to do several in an hour. Only a
+        document's first event counts against the per-IP document budget."""
+        from etch.assent_api import NEW_DOCUMENTS_PER_WINDOW
+
+        for d in range(NEW_DOCUMENTS_PER_WINDOW):
+            doc = f"doc_form_{d}"
+            res = await http.post("/v1/assent/stamp", json=_event(document_id=doc, document_hash=_sha(f"{d}-0")))
+            assert res.status_code == 200
+            for i in range(1, 12):
+                res = await http.post(
+                    "/v1/assent/stamp",
+                    json=_event(
+                        document_id=doc,
+                        event_type="signed" if i % 2 else "field_added",
+                        document_hash=_sha(f"{d}-0"),
+                        parent_hash=_sha(f"{d}-0"),
+                        event_index=i,
+                    ),
+                )
+                assert res.status_code == 200, (d, i, res.text)
+
+    async def test_follow_on_events_have_a_flood_guard(self, http: httpx.AsyncClient, monkeypatch):
+        from etch import assent_api
+
+        monkeypatch.setattr(assent_api._followon_limiter, "_max", 3)
+        res = await http.post("/v1/assent/stamp", json=_event())
+        assert res.status_code == 200
+        codes = []
+        for i in range(1, 5):
+            res = await http.post(
+                "/v1/assent/stamp",
+                json=_event(event_type="field_added", parent_hash=_sha("pdf-v0"), event_index=i),
+            )
+            codes.append(res.status_code)
+        assert codes == [200, 200, 200, 429]
+        assert "events" in res.json()["detail"]
 
     async def test_event_index_must_match_existing_count(self, http: httpx.AsyncClient):
         # count=0 → the only valid event_index is 0; skipping ahead is rejected.

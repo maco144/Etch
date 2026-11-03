@@ -53,7 +53,15 @@ ASSENT_NAMESPACE_ID = "assent_public"
 ASSENT_NAMESPACE_NAME = "assent/public"
 
 RATE_LIMIT_WINDOW_SECONDS = 3600
-RATE_LIMIT_MAX_REQUESTS = 20
+# The per-IP limit is on *new documents* (event_index 0), because that is the
+# only thing an IP can multiply: every document is already capped at
+# MAX_EVENTS_PER_DOCUMENT and its events must arrive in strict index order.
+# Counting every event instead made one 12-page form with five signature
+# lines (~12 events) eat most of an hour's budget for a whole office NAT.
+NEW_DOCUMENTS_PER_WINDOW = 30
+# Follow-on events (fields, signatures, finalize, a recipient's events on a
+# sender's chain) get a loose flood guard on top of the per-document cap.
+FOLLOW_ON_EVENTS_PER_WINDOW = 600
 
 # Bumped from 16KB → 32KB so WebAuthn attestation blobs (typically 4–8KB, up to
 # ~20KB for some authenticators) fit without truncation.
@@ -103,7 +111,8 @@ class _SlidingWindowLimiter:
             self._buckets.clear()
 
 
-_limiter = _SlidingWindowLimiter(RATE_LIMIT_WINDOW_SECONDS, RATE_LIMIT_MAX_REQUESTS)
+_limiter = _SlidingWindowLimiter(RATE_LIMIT_WINDOW_SECONDS, NEW_DOCUMENTS_PER_WINDOW)
+_followon_limiter = _SlidingWindowLimiter(RATE_LIMIT_WINDOW_SECONDS, FOLLOW_ON_EVENTS_PER_WINDOW)
 
 
 def _client_ip(request: Request) -> str:
@@ -275,10 +284,17 @@ async def stamp_event(event: AssentEvent, request: Request) -> AssentReceipt:
         raise HTTPException(status_code=413, detail="event payload too large")
 
     ip = _client_ip(request)
-    if not _limiter.check(ip):
+    starts_document = event.event_index == 0
+    limiter = _limiter if starts_document else _followon_limiter
+    if not limiter.check(ip):
+        what = (
+            f"{NEW_DOCUMENTS_PER_WINDOW} new documents"
+            if starts_document
+            else f"{FOLLOW_ON_EVENTS_PER_WINDOW} events"
+        )
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit: max {RATE_LIMIT_MAX_REQUESTS} events per IP per hour",
+            detail=f"Rate limit: max {what} per IP per hour",
             headers={"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)},
         )
 
