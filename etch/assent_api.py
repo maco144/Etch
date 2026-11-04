@@ -36,6 +36,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from .chain import RECORD_COMMIT_VERIFICATION_STEPS
 from .chain_manager import get_chain_manager
 from .db import get_session
 from .models import Namespace, RecordEntry, generate_record_id
@@ -211,6 +212,8 @@ class AssentInclusionProof(BaseModel):
     mmr_root: str
     prev_root: str
     payload_hash: str
+    payload_json: Optional[str] = Field(
+        None, description="Exact preimage of payload_hash; names record_hash. Null only for records not yet backfilled.")
     timestamp: float
     algorithm: str = "sha256"
     verification_steps: List[str]
@@ -368,6 +371,7 @@ async def stamp_event(event: AssentEvent, request: Request) -> AssentReceipt:
                 record_hash=event.document_hash,
                 metadata_json=json.dumps(metadata),
                 created_at_exact=entry.created_at,
+                payload_json=entry.payload_json,
             ))
     except Exception as exc:
         logger.warning(f"[Etch] Assent persist failed: {exc}")
@@ -514,10 +518,8 @@ async def get_assent_proof(record_id: str) -> AssentInclusionProof:
         prev_root=prev_root,
         payload_hash=record.payload_hash,
         timestamp=ts,
-        verification_steps=[
-            "leaf_hash = SHA256(prev_root + ':' + 'record_commit' + ':' + payload_hash + ':' + timestamp)",
-            "mmr_root = SHA256(prev_root + ':' + leaf_hash)",
-        ],
+        payload_json=record.payload_json,
+        verification_steps=RECORD_COMMIT_VERIFICATION_STEPS,
     )
 
 

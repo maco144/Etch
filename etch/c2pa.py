@@ -218,6 +218,7 @@ async def register_manifest(body: C2PAManifestRequest) -> C2PAManifestReceipt:
                 owner=body.title,
                 proof_json=manifest_json,
                 created_at_exact=entry.created_at,
+                payload_json=entry.payload_json,
             )
             session.add(record)
     except Exception as exc:
@@ -227,6 +228,7 @@ async def register_manifest(body: C2PAManifestRequest) -> C2PAManifestReceipt:
     chain = get_chain()
     proof = chain.generate_proof(entry.leaf_index)
     proof_dict = proof.to_dict() if proof else {}
+    proof_dict["payload_json"] = entry.payload_json  # preimage of payload_hash; names manifest + content hash
 
     logger.info(f"[C2PA] Manifest registered claim_id={entry.leaf_index} generator={body.claim.claim_generator}")
 
@@ -291,10 +293,13 @@ async def get_manifest(claim_id: int) -> dict:
             "mmr_root": record.mmr_root,
             "chain_depth": record.leaf_count,
             "timestamp": ts,
+            "payload_hash": record.payload_hash,
+            "payload_json": record.payload_json,
         },
         "inclusion_proof": proof_dict,
         "verification_steps": [
             "1. Recompute manifest_hash = SHA256(canonical JSON of manifest)",
+            "1b. Verify payload_hash = SHA256(chain.payload_json), and that it names this manifest_hash and content_hash",
             "2. Verify leaf_hash = SHA256(prev_root + ':c2pa_manifest:' + payload_hash + ':' + timestamp)",
             "3. Verify mmr_root = SHA256(prev_root + ':' + leaf_hash)",
             "4. If content_hash provided, verify it matches manifest.content_hash",

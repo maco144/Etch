@@ -138,6 +138,7 @@ async def _persist_to_db(entry, content_hash: str, label: Optional[str], owner: 
                     "owner": owner or "",
                 }),
                 created_at_exact=entry.created_at,
+                payload_json=entry.payload_json,
             )
             session.add(record)
     except Exception as exc:
@@ -387,6 +388,7 @@ async def register_batch(body: BatchProofRequest) -> BatchProofResponse:
                             "owner": owner or "",
                         }),
                         created_at_exact=entry.created_at,
+                        payload_json=entry.payload_json,
                     )
                     session.add(record)
         except Exception as exc:

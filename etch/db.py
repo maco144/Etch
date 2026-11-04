@@ -40,8 +40,28 @@ async def get_session():
             raise
 
 
+# Columns added after tables already existed in deployed databases. create_all never alters an existing
+# table, so each one is added here if missing. Nullable only: old rows stay valid without a rewrite.
+_ADDED_COLUMNS = (
+    ("etch_proofs", "payload_json", "TEXT"),
+    ("etch_records", "payload_json", "TEXT"),
+)
+
+
+def _add_missing_columns(sync_conn) -> None:
+    from sqlalchemy import inspect, text
+    inspector = inspect(sync_conn)
+    for table, column, ddl_type in _ADDED_COLUMNS:
+        if not inspector.has_table(table):
+            continue
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
+            logger.info(f"[Etch] Added column {table}.{column}")
+
+
 async def create_tables():
-    """Create all tables (for dev/testing). Use Alembic in production."""
+    """Create missing tables, then add columns introduced since (see _ADDED_COLUMNS)."""
     from .models import Base
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)

@@ -1,7 +1,9 @@
 """Tests for the public, anonymous Etch Assent API (/v1/assent/*)."""
 from __future__ import annotations
 
+
 import hashlib
+import json
 
 import httpx
 import pytest
@@ -432,6 +434,11 @@ class TestPublicProof:
         # First record: prev_root should be the chain genesis (64 zeros).
         assert proof["prev_root"] == "0" * 64
         assert proof["algorithm"] == "sha256"
+        # payload_json binds the leaf to the document hash the event carried.
+        assert _h.sha256(proof["payload_json"].encode()).hexdigest() == proof["payload_hash"]
+        payload = json.loads(proof["payload_json"])
+        assert payload["record_hash"] == _event()["document_hash"]
+        assert payload["external_id"] == _event()["document_id"]
 
     async def test_unknown_record_proof_404(self, http: httpx.AsyncClient):
         res = await http.get("/v1/assent/records/rec_nope/proof")

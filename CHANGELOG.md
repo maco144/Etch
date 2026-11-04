@@ -99,6 +99,16 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Fixed
 
+- **Proofs now bind the content hash.** Every chain payload included a `registered_at` that was
+  never stored, so a verifier could recompute `leaf_hash` and `mmr_root` but couldn't connect
+  `payload_hash` to the content: that link rested on Etch's database. The exact hashed payload
+  is now stored (`payload_json` on `etch_records` and `etch_proofs`, added at startup) and
+  returned by the `/v1/records`, `/v1/assent` and `/v1/c2pa` proofs. The verification steps go
+  from 2 to 4, and the SDK's `InclusionProof` gains `payload_json` and `verify()`. Older rows were
+  recovered with `python -m etch.backfill_payloads`, which brute-forces `registered_at` over the
+  doubles just below the stored chain timestamp. Production: 137,663/137,663 recovered
+  (2026-11-03), each one an exact SHA-256 preimage.
+
 - Assent's rate limit counted every event, so one long form with several
   signature lines used most of an office NAT's hourly budget. The per-IP limit
   is now on new documents (30/hour), with a 600/hour flood guard on follow-on

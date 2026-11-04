@@ -42,6 +42,8 @@ class ProofRecord(Base):
     proof_json = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_at_exact = Column(Float, nullable=True)
+    # Exact preimage of payload_hash (chain.canonical_payload). Binds the proof to content_hash.
+    payload_json = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("idx_etch_leaf_index", "leaf_index", unique=True),
@@ -112,6 +114,8 @@ class RecordEntry(Base):
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_at_exact = Column(Float, nullable=True)
+    # Exact preimage of payload_hash (chain.canonical_payload). Binds the proof to record_hash.
+    payload_json = Column(Text, nullable=True)
 
     __table_args__ = (
         Index("idx_records_ns_type", "namespace_id", "record_type"),

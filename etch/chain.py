@@ -31,6 +31,10 @@ class ChainEntry:
     specialist: str
     agent_id: str
     created_at: float
+    # The exact string payload_hash was computed over. Persist it: it is the only way a verifier can
+    # get from payload_hash back to the content hash, because the payload includes fields (registered_at)
+    # that appear nowhere else.
+    payload_json: str = ""
 
 
 @dataclass
@@ -62,6 +66,30 @@ class InclusionProof:
             "payload_hash": self.payload_hash,
             "timestamp": self.timestamp,
         }
+
+
+def canonical_payload(payload: Dict[str, Any]) -> str:
+    """The serialization every chain payload is hashed over. Changing it breaks every stored payload_hash."""
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
+def verify_payload_binding(payload_json: str, payload_hash: str) -> Optional[Dict[str, Any]]:
+    """Return the decoded payload if ``payload_json`` is the preimage of ``payload_hash``, else None.
+
+    With this, a proof covers the content itself: the leaf commits to payload_hash, payload_hash to
+    payload_json, and payload_json names the content hash (``record_hash`` / ``content_hash``)."""
+    if hashlib.sha256(payload_json.encode()).hexdigest() != payload_hash:
+        return None
+    return json.loads(payload_json)
+
+
+# Published with every record_commit proof. Steps 1-2 bind the content; 3-4 place the leaf in the chain.
+RECORD_COMMIT_VERIFICATION_STEPS = [
+    "payload_hash = SHA256(payload_json)  -- payload_json exactly as returned, byte for byte",
+    "JSON.parse(payload_json).record_hash == SHA256 of your content",
+    "leaf_hash = SHA256(prev_root + ':' + 'record_commit' + ':' + payload_hash + ':' + timestamp)",
+    "mmr_root = SHA256(prev_root + ':' + leaf_hash)",
+]
 
 
 def verify_inclusion_proof(proof: InclusionProof) -> bool:
@@ -118,7 +146,7 @@ class AuditChain:
         """
         with self._lock:
             now = time.time()
-            payload_str = json.dumps(payload, sort_keys=True, default=str)
+            payload_str = canonical_payload(payload)
             payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
 
             # leaf_hash commits to: previous root + action + payload + timestamp
@@ -137,6 +165,7 @@ class AuditChain:
                 specialist=specialist,
                 agent_id=agent_id,
                 created_at=now,
+                payload_json=payload_str,
             )
             self._entries.append((entry, self._current_root))  # (entry, prev_root)
 

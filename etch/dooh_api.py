@@ -183,6 +183,7 @@ async def create_receipt(
                 record_hash=bundle_hash,
                 metadata_json=json.dumps(metadata),
                 created_at_exact=entry.created_at,
+                payload_json=entry.payload_json,
             )
             session.add(record)
     except Exception as exc:

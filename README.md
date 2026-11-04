@@ -209,9 +209,12 @@ Embed returns lossless WAV; the spread-spectrum layer survives the artist's own 
 Etch uses a Merkle Mountain Range (MMR) hash chain. Each proof receipt commits to all previous entries:
 
 ```
-leaf_hash = SHA256(prev_root : action_type : payload_hash : timestamp)
-mmr_root  = SHA256(prev_root : leaf_hash)
+payload_hash = SHA256(payload_json)          # payload_json names the content hash
+leaf_hash    = SHA256(prev_root : action_type : payload_hash : timestamp)
+mmr_root     = SHA256(prev_root : leaf_hash)
 ```
+
+Every proof returns `payload_json`, the exact bytes `payload_hash` was computed over. Check that it hashes to `payload_hash` and that its `record_hash` (or `content_hash`) is the SHA-256 of your content. That ties the proof to *your content*, not just to some leaf. The SDK's `InclusionProof.verify(record_hash=...)` runs all four steps.
 
 If any historical entry is tampered with, all subsequent hashes become invalid. Proofs can be verified offline — no server trust required. The chain is append-only: nothing is ever deleted or compacted.
 

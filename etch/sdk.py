@@ -80,6 +80,26 @@ class InclusionProof:
     timestamp: float
     algorithm: str
     verification_steps: List[str]
+    payload_json: Optional[str] = None
+
+    def verify(self, record_hash: Optional[str] = None) -> bool:
+        """Check the proof offline, without trusting Etch.
+
+        Recomputes leaf_hash and mmr_root, and checks that payload_json is the preimage of payload_hash.
+        With ``record_hash`` (SHA-256 hex of your content), also checks the proof is about that content.
+        Returns False for a proof with no payload_json: it cannot be tied to any content.
+        """
+        if self.payload_json is None:
+            return False
+        if hashlib.sha256(self.payload_json.encode()).hexdigest() != self.payload_hash:
+            return False
+        if record_hash is not None and json.loads(self.payload_json).get("record_hash") != record_hash:
+            return False
+        leaf = hashlib.sha256(
+            f"{self.prev_root}:record_commit:{self.payload_hash}:{self.timestamp}".encode()).hexdigest()
+        if leaf != self.leaf_hash:
+            return False
+        return hashlib.sha256(f"{self.prev_root}:{leaf}".encode()).hexdigest() == self.mmr_root
 
 
 @dataclass
@@ -365,6 +385,7 @@ class RecordsResource:
             timestamp=d["timestamp"],
             algorithm=d["algorithm"],
             verification_steps=d["verification_steps"],
+            payload_json=d.get("payload_json"),
         )
 
     async def list(

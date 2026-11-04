@@ -37,6 +37,7 @@ ruff check etch/ tests/
 - **models.py** — SQLAlchemy ORM: `ProofRecord`, `Namespace`, `ApiKey`, `RecordEntry` (4 tables)
 - **db.py** — Async DB sessions (SQLite default, PostgreSQL via `ETCH_DATABASE_URL`)
 - **sdk.py** — Async Python SDK (`EtchClient`) with legacy + v2 API support
+- **backfill_payloads.py** — One-off recovery of `payload_json` for rows written before it was stored
 - **server.py** — FastAPI app with lifespan (auto-creates tables, bootstraps namespaces, configures `etch` loggers)
 
 ## Key Patterns
@@ -44,6 +45,8 @@ ruff check etch/ tests/
 - Global singleton chain via `get_chain()` / `log_event()` in chain.py
 - Thread-safe chain operations (threading.Lock)
 - Persist hook pattern: chain calls sync hook after append (outside lock)
+- **Every chain write must persist `entry.payload_json`** (the `payload_json` column). It is the only link from `payload_hash` to the content hash; a router that drops it ships proofs that can't be tied to content. Proof endpoints return it alongside `chain.RECORD_COMMIT_VERIFICATION_STEPS`
+- New columns on existing tables go in `db._ADDED_COLUMNS` (nullable); `create_all` never alters a deployed table
 - API tests use httpx ASGITransport with mocked DB layer
 - `asyncio_mode = "auto"` in pytest config
 - The chain is append-only and every root hashes the previous one — nothing is ever deleted or compacted, so write-amplification is permanent. A write-only API invites clients to re-register their whole working set every run; `POST /v1/records` takes `if_changed: true` (with `record.id`) to make that cheap: one indexed lookup on `idx_records_ns_ext`, and an unchanged `record_hash` returns the existing receipt with `deduplicated: true` instead of appending. It is opt-in on purpose — re-registering unchanged content is a legitimate timestamped re-attestation, so the default must never silently deduplicate.

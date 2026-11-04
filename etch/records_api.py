@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 
 from .auth import AuthContext, require_auth
+from .chain import RECORD_COMMIT_VERIFICATION_STEPS
 from .chain_manager import get_chain_manager
 from .db import get_session
 from .models import RecordEntry, generate_record_id
@@ -124,6 +125,8 @@ class InclusionProofResponse(BaseModel):
     mmr_root: str
     prev_root: str
     payload_hash: str
+    payload_json: Optional[str] = Field(
+        None, description="Exact preimage of payload_hash; names record_hash. Null only for records not yet backfilled.")
     timestamp: float
     algorithm: str = "sha256"
     verification_steps: List[str]
@@ -307,6 +310,7 @@ async def create_record(body: CreateRecordRequest, auth: AuthContext = Depends(r
                 record_hash=record_hash,
                 metadata_json=metadata_str,
                 created_at_exact=entry.created_at,
+                payload_json=entry.payload_json,
             )
             session.add(record)
     except Exception as exc:
@@ -480,10 +484,8 @@ async def get_record_proof(record_id: str, auth: AuthContext = Depends(require_a
         prev_root=prev_root,
         payload_hash=record.payload_hash,
         timestamp=ts,
-        verification_steps=[
-            "leaf_hash = SHA256(prev_root + ':' + 'record_commit' + ':' + payload_hash + ':' + timestamp)",
-            "mmr_root = SHA256(prev_root + ':' + leaf_hash)",
-        ],
+        payload_json=record.payload_json,
+        verification_steps=RECORD_COMMIT_VERIFICATION_STEPS,
     )
 
 

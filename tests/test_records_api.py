@@ -5,6 +5,7 @@ Runs against the real ASGI app with in-memory SQLite, using the v2 SDK.
 from __future__ import annotations
 
 import hashlib
+import json
 
 import httpx
 import pytest
@@ -280,7 +281,27 @@ class TestRecordProof:
         assert proof.leaf_hash == receipt.leaf_hash
         assert proof.mmr_root == receipt.mmr_root
         assert proof.algorithm == "sha256"
-        assert len(proof.verification_steps) == 2
+        assert len(proof.verification_steps) == 4
+        assert proof.payload_json is not None
+
+    async def test_proof_binds_record_hash(self, client: EtchClient):
+        """payload_json is the preimage of payload_hash and names the record_hash, so the proof is about
+        this content and not just about some leaf."""
+        receipt = await client.records.create(data={"bind": "me"})
+        proof = await client.records.proof(receipt.id)
+        assert hashlib.sha256(proof.payload_json.encode()).hexdigest() == proof.payload_hash
+        assert json.loads(proof.payload_json)["record_hash"] == receipt.record_hash
+        assert proof.verify(record_hash=receipt.record_hash)
+
+    async def test_sdk_verify_rejects_tampering(self, client: EtchClient):
+        import dataclasses
+        receipt = await client.records.create(data={"bind": "tamper"})
+        proof = await client.records.proof(receipt.id)
+        assert not proof.verify(record_hash="0" * 64)  # proof is about other content
+        forged = json.dumps({**json.loads(proof.payload_json), "record_hash": "0" * 64}, sort_keys=True)
+        assert not dataclasses.replace(proof, payload_json=forged).verify()
+        assert not dataclasses.replace(proof, payload_json=None).verify()
+        assert not dataclasses.replace(proof, timestamp=proof.timestamp + 1).verify()
 
     async def test_proof_offline_verifiable(self, client: EtchClient):
         """Verify the proof can be checked with just SHA-256."""
