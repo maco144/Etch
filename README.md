@@ -174,6 +174,15 @@ Client-side PDF signing with an anonymous provenance chain. Plaintext PDFs are e
 
 Product + protocol spec: [`docs/ETCH_ASSENT_SPEC.md`](docs/ETCH_ASSENT_SPEC.md). Frontend lives in [`assent-app/`](assent-app/) and builds to `site/assent/`.
 
+**Assent MCP server: an agent asks a human to sign.** Three tools. `request_signature` takes plain text, which it renders to a one-page sign-off PDF, or a path to an existing PDF. It encrypts the document on the agent's machine, uploads only the ciphertext, stamps the plaintext hash as event 0, and returns a `sign_url` that opens in the normal Assent Sign page. The agent delivers the link itself. The key exists only in that URL and in a 0600 file under `~/.etch/assent/requests/`. `signature_status` reads the public chain and reports one of sent, opened, signing, or finalized. It also flags a signer who was shown different bytes from what was sent. `fetch_signed` downloads the signed copy, decrypts it locally, saves it only if its SHA-256 equals the chain's `finalized` hash, and recomputes the inclusion proof.
+
+```bash
+pip install "etch[mcp]"
+claude mcp add etch-assent -- etch-assent-mcp
+```
+
+Set `ETCH_ASSENT_BASE_URL` (default `https://assent.to`) to change the link host, or `ETCH_ASSENT_API_URL` to send API calls somewhere else, such as a local server.
+
 ### Glyph — shortcodes, sigils, and the public resolver
 
 A shortcode is 8 Crockford-base32 characters encoding a 32-bit `proof_id` plus an 8-bit checksum over the content hash, so typos and fabrications are detectable before a DB lookup.

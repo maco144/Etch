@@ -13,6 +13,14 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Added
 
+- **Assent MCP server** (`etch-assent-mcp`, `pip install "etch[mcp]"`). An agent asks a human
+  to sign and gets a link back. `request_signature` renders plain text to a sign-off PDF, or
+  takes an existing PDF. It encrypts locally in the browser's format (`[IV || CT]`,
+  `#key=…&wt=…`), uploads ciphertext, and stamps `uploaded` at index 0. Etch never holds the
+  key. The core is `etch/assent_agent.py`, with no MCP dependency.
+  `signature_status` reports progress (sent → opened → signing → finalized) and whether the
+  opened copy matches what was sent. `fetch_signed` decrypts the signed return, accepts it only
+  when its hash equals the `finalized` event, and recomputes the inclusion proof locally.
 - **Etch Assent** (`/v1/assent/*`) — client-side PDF signing with an anonymous
   provenance chain. The PDF never reaches the server; only hashes and event
   metadata do. Events are pinned to the `assent/public` namespace and capped at

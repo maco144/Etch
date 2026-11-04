@@ -30,6 +30,7 @@ ruff check etch/ tests/
 - **c2pa.py** — FastAPI router at `/v1/c2pa/*` (C2PA manifest bridge for EU AI Act compliance)
 - **assent_api.py** — FastAPI router at `/v1/assent/*` (anonymous PDF-signer event chain)
 - **assent_docs_api.py** — FastAPI router at `/v1/assent/document/*` (E2EE ciphertext store)
+- **assent_agent.py / assent_mcp.py** — Assent sender for agents (text→PDF, local E2EE, sign link) + stdio MCP server `etch-assent-mcp`
 - **dooh_api.py** — FastAPI router at `/v1/dooh/*` (playback receipts); SDK in **dooh/**
 - **glyph.py / glyph_api.py** — Shortcodes + bar sigils; public resolver at `/g/{shortcode}`
 - **watermark/ + watermark_api.py** — `etchmark` audio watermark; embed/extract endpoints

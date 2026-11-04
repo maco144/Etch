@@ -102,7 +102,7 @@ cannot finalize as an unchanged copy of itself.
 3. Sender stamps an `uploaded` event at index 0, binding themselves to the chain
    before the recipient ever touches the document
 4. Sender copies and shares the link:
-   `etch.locker/assent/sign/{doc_id}#key={b64key}&t={write_token}`. Both secrets
+   `assent.to/sign/{doc_id}#key={b64key}&wt={write_token}`. Both secrets
    ride in the fragment, which browsers never transmit
 5. Recipient's browser fetches the ciphertext, decrypts in memory, signs,
    re-encrypts, and `PUT`s it back with `X-Assent-Write-Token`
