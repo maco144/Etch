@@ -223,20 +223,22 @@ export async function replaceDocument(
   }
 }
 
-// Resolve a URL token that might be either a record_id (rec_...) or a
-// document_id (doc_...). Returns the canonical chain response either way.
+// Resolve a URL token to its document chain. The token is a record_id
+// (rec_...) or a document_id: doc_... from local signing, or the unprefixed
+// token_urlsafe id the server issues for send-to-sign, which is what the QR
+// and link stamped on every send-to-sign PDF carry. A server id can start with
+// "rec_" by chance, so a rec_ token that is not a record is tried as a
+// document id before giving up.
 export async function resolveVerify(
   token: string,
 ): Promise<AssentChainResponse> {
-  if (token.startsWith("doc_")) {
-    return fetchDocumentChain(token);
-  }
   if (token.startsWith("rec_")) {
-    const record = await fetchRecord(token);
-    return fetchDocumentChain(record.document_id);
+    try {
+      const record = await fetchRecord(token);
+      return fetchDocumentChain(record.document_id);
+    } catch (err) {
+      if (!(err instanceof EtchApiError && err.status === 404)) throw err;
+    }
   }
-  throw new EtchApiError(
-    "Unrecognized identifier — expected rec_... or doc_...",
-    400,
-  );
+  return fetchDocumentChain(token);
 }

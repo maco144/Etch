@@ -107,6 +107,9 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Fixed
 
+- **Send-to-sign verify links resolve.** The link and QR stamped on every send-to-sign PDF carry
+  the server-issued document id, which has no `doc_` prefix; the Verify page rejected it as an
+  "Unrecognized identifier". Any token that isn't a record id is now looked up as a document id.
 - **Proofs now bind the content hash.** Every chain payload included a `registered_at` that was
   never stored, so a verifier could recompute `leaf_hash` and `mmr_root` but couldn't connect
   `payload_hash` to the content: that link rested on Etch's database. The exact hashed payload
