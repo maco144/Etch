@@ -26,7 +26,7 @@ import {
 } from "../lib/crypto";
 import { takePending } from "../lib/handoff";
 import { newDocumentId, sha256, toArrayBuffer } from "../lib/hash";
-import { pathFor } from "../lib/routing";
+import { pathFor, verifyPath } from "../lib/routing";
 import {
   downloadBytes,
   downloadJson,
@@ -673,7 +673,7 @@ export default function Sign() {
           ),
         ],
         documentId,
-        verifyUrl: `${window.location.origin}/verify/${documentId}`,
+        verifyUrl: `${window.location.origin}${verifyPath(documentId)}`,
         signerLabel: signerLabel(),
         stamp: stampEnabled ? stampField : null,
       });
@@ -747,7 +747,7 @@ export default function Sign() {
         document_id: documentId,
         filename,
         signer: stage.signer,
-        verify_url: `${window.location.origin}/verify/${finalReceipt.id}`,
+        verify_url: `${window.location.origin}${verifyPath(finalReceipt.id)}`,
       },
       `${finalReceipt.id}.receipt.json`,
     );
@@ -842,7 +842,7 @@ export default function Sign() {
         pageWidthPt={currentPage.widthPt}
         pageHeightPt={currentPage.heightPt}
         editable={stage.step === "placing"}
-        verifyUrl={`${window.location.origin}/verify/${documentId}`}
+        verifyUrl={`${window.location.origin}${verifyPath(documentId)}`}
         onChange={updateStampField}
         onRemove={() => setStampEnabled(false)}
       />
@@ -1159,7 +1159,7 @@ export default function Sign() {
               with anyone who needs to check it:
             </div>
             <div className="font-mono text-xs break-all bg-elevated p-2 rounded">
-              {window.location.origin}/verify/{finalReceipt.id}
+              {window.location.origin}{verifyPath(finalReceipt.id)}
             </div>
             <div className="flex flex-col gap-2">
               {finalPdfUrl && (
@@ -1179,7 +1179,7 @@ export default function Sign() {
                 Download receipt JSON
               </button>
               <Link
-                to={`/verify/${finalReceipt.id}`}
+                to={verifyPath(finalReceipt.id)}
                 className="btn-primary justify-center"
               >
                 View verify page
