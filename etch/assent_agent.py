@@ -27,9 +27,9 @@ import json
 import os
 import secrets
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from cryptography.exceptions import InvalidTag
@@ -142,12 +142,12 @@ def text_to_pdf(
     title: str,
     body: str,
     *,
-    requested_by: Optional[str] = None,
-    signer_name: Optional[str] = None,
-    created_at: Optional[datetime] = None,
+    requested_by: str | None = None,
+    signer_name: str | None = None,
+    created_at: datetime | None = None,
 ) -> bytes:
     """Render a sign-off document. Deterministic for a given input and ``created_at``."""
-    created_at = created_at or datetime.now(timezone.utc)
+    created_at = created_at or datetime.now(UTC)
     usable = PAGE_W - 2 * MARGIN
 
     # (font, size, text, extra space before) — laid out top-down, paginated below.
@@ -251,7 +251,7 @@ class SignatureRequest:
     document_hash: str
     uploaded_record_id: str
     title: str
-    signer: Optional[str]
+    signer: str | None
     created_at: str
     base_url: str
     # Secrets. Also inside sign_url; stored separately so later tools don't parse URLs.
@@ -288,7 +288,7 @@ def load_request(document_id: str) -> SignatureRequest:
 # The flow
 # ---------------------------------------------------------------------------
 
-def _urls(base_url: Optional[str], api_url: Optional[str]) -> tuple[str, str]:
+def _urls(base_url: str | None, api_url: str | None) -> tuple[str, str]:
     base = (base_url or os.environ.get("ETCH_ASSENT_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
     return base, (api_url or os.environ.get("ETCH_ASSENT_API_URL") or base).rstrip("/")
 
@@ -306,21 +306,21 @@ def _api_error(res: httpx.Response, what: str) -> AssentError:
 
 async def request_signature(
     *,
-    pdf: Optional[bytes] = None,
-    title: Optional[str] = None,
-    text: Optional[str] = None,
-    signer: Optional[str] = None,
-    requested_by: Optional[str] = None,
-    base_url: Optional[str] = None,
-    api_url: Optional[str] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    pdf: bytes | None = None,
+    title: str | None = None,
+    text: str | None = None,
+    signer: str | None = None,
+    requested_by: str | None = None,
+    base_url: str | None = None,
+    api_url: str | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> SignatureRequest:
     """Encrypt a document, park the ciphertext on Etch, bind its hash to the chain, mint a sign link.
 
     Give either ``pdf`` (bytes) or ``title`` + ``text`` (rendered to a one-page sign-off PDF).
     """
     base_url, api_url = _urls(base_url, api_url)
-    created = datetime.now(timezone.utc)
+    created = datetime.now(UTC)
 
     if pdf is not None and text is not None:
         raise AssentError("give either a PDF or text, not both")
@@ -400,10 +400,10 @@ _STATES = ("sent", "opened", "signing", "finalized")
 
 
 def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.fromtimestamp(ts, UTC).isoformat().replace("+00:00", "Z")
 
 
-def _signer_summary(signer: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+def _signer_summary(signer: dict[str, Any] | None) -> dict[str, Any] | None:
     if not signer:
         return None
     # The WebAuthn attestation blob is kilobytes of base64 and means nothing to an agent; the
@@ -412,7 +412,7 @@ def _signer_summary(signer: Optional[dict[str, Any]]) -> Optional[dict[str, Any]
     return out or None
 
 
-def summarize_chain(chain: dict[str, Any], sent_hash: Optional[str]) -> dict[str, Any]:
+def summarize_chain(chain: dict[str, Any], sent_hash: str | None) -> dict[str, Any]:
     events = chain["events"]
     types = {e["event_type"] for e in events}
     if "finalized" in types:
@@ -464,13 +464,13 @@ async def _get_chain(client: httpx.AsyncClient, api_url: str, document_id: str) 
     return res.json()
 
 
-def _client(client: Optional[httpx.AsyncClient]) -> tuple[httpx.AsyncClient, bool]:
+def _client(client: httpx.AsyncClient | None) -> tuple[httpx.AsyncClient, bool]:
     if client is not None:
         return client, False
     return httpx.AsyncClient(timeout=30.0, headers={"User-Agent": "etch-assent-agent"}), True
 
 
-def _local_request(document_id: str) -> Optional[SignatureRequest]:
+def _local_request(document_id: str) -> SignatureRequest | None:
     try:
         return load_request(document_id)
     except AssentError:
@@ -480,8 +480,8 @@ def _local_request(document_id: str) -> Optional[SignatureRequest]:
 async def signature_status(
     document_id: str,
     *,
-    api_url: Optional[str] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    api_url: str | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     """Where a document is in signing, from the public chain. Works for any document id; a local
     request (one this machine sent) adds the title and checks the opened copy against what was sent."""
@@ -542,9 +542,9 @@ def check_proof(proof: dict[str, Any], expected_root: str, document_hash: str, d
 async def fetch_signed(
     document_id: str,
     *,
-    output_path: Optional[str | Path] = None,
-    api_url: Optional[str] = None,
-    client: Optional[httpx.AsyncClient] = None,
+    output_path: str | Path | None = None,
+    api_url: str | None = None,
+    client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     """Download the signed copy, decrypt it with the locally stored key, and accept it only if its
     SHA-256 equals the `finalized` hash on the chain. Writes the PDF and returns where it went."""

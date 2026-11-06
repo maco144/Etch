@@ -14,8 +14,6 @@ chunks.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from .payload import PAYLOAD_BITS, SYNC_BITS, SYNC_PATTERN
@@ -71,7 +69,7 @@ def rank_alignments(soft_bits: np.ndarray) -> list[tuple[int, float]]:
     return scored
 
 
-def majority_decode(soft_bits: np.ndarray, offset: int) -> Optional[np.ndarray]:
+def majority_decode(soft_bits: np.ndarray, offset: int) -> np.ndarray | None:
     """
     Modular deinterleave: every chunk contributes to its corresponding payload
     bit position. Returns 56 hard bits, or None if there isn't enough evidence

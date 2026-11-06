@@ -4,10 +4,9 @@ from __future__ import annotations
 import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 from fastapi import FastAPI
-
 
 # ---------------------------------------------------------------------------
 # Test app

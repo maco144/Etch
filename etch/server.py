@@ -20,11 +20,11 @@ from .api import router as proof_router
 from .assent_api import assent_router, ensure_assent_namespace
 from .assent_docs_api import assent_docs_router
 from .c2pa import c2pa_router
+from .db import create_tables
 from .dooh_api import dooh_router
 from .glyph_api import glyph_router
 from .records_api import records_router
 from .watermark_api import watermark_router
-from .db import create_tables
 
 logger = logging.getLogger(__name__)
 

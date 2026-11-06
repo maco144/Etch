@@ -11,6 +11,7 @@ import importlib
 import json
 import os
 import stat
+from datetime import UTC
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -31,10 +32,11 @@ async def http(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     importlib.reload(server_mod)
     docs_mod._upload_limiter.reset()
 
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     import etch.chain as chain_module
     import etch.chain_manager as cm_module
     import etch.db as db_module
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     orig = (db_module._session_maker, db_module._engine, chain_module._global_chain, cm_module._manager)
@@ -203,8 +205,8 @@ class TestTextToPdf:
         assert "café".encode("cp1252") in pdf
 
     def test_deterministic_for_fixed_time(self):
-        from datetime import datetime, timezone
-        t = datetime(2026, 11, 3, tzinfo=timezone.utc)
+        from datetime import datetime
+        t = datetime(2026, 11, 3, tzinfo=UTC)
         assert agent.text_to_pdf("T", "B", created_at=t) == agent.text_to_pdf("T", "B", created_at=t)
 
 

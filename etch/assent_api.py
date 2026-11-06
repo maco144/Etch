@@ -30,7 +30,7 @@ import os
 import time
 from collections import deque
 from threading import Lock
-from typing import Any, Dict, Deque, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -92,7 +92,7 @@ class _SlidingWindowLimiter:
     def __init__(self, window_seconds: int, max_requests: int) -> None:
         self._window = window_seconds
         self._max = max_requests
-        self._buckets: Dict[str, Deque[float]] = {}
+        self._buckets: dict[str, deque[float]] = {}
         self._lock = Lock()
 
     def check(self, key: str) -> bool:
@@ -155,12 +155,12 @@ class AssentEvent(BaseModel):
     document_id: str = Field(min_length=4, max_length=128, description="Stable document identifier")
     event_type: str = Field(description="created | field_added | signed | countersigned | finalized")
     document_hash: str = Field(description="SHA-256 hex (64) of the PDF bytes after this event")
-    parent_hash: Optional[str] = Field(None, description="document_hash of the previous event")
+    parent_hash: str | None = Field(None, description="document_hash of the previous event")
     event_index: int = Field(ge=0)
-    signer: Optional[Dict[str, Any]] = None
-    location: Optional[Dict[str, Any]] = None
-    timestamp: Optional[str] = Field(None, description="Client-provided ISO 8601 timestamp")
-    client_metadata: Optional[Dict[str, Any]] = None
+    signer: dict[str, Any] | None = None
+    location: dict[str, Any] | None = None
+    timestamp: str | None = Field(None, description="Client-provided ISO 8601 timestamp")
+    client_metadata: dict[str, Any] | None = None
 
 
 class AssentReceipt(BaseModel):
@@ -170,23 +170,23 @@ class AssentReceipt(BaseModel):
     event_type: str
     event_index: int
     document_hash: str
-    parent_hash: Optional[str] = None
+    parent_hash: str | None = None
     leaf_hash: str
     mmr_root: str
     chain_position: int
     namespace: str = ASSENT_NAMESPACE_NAME
     server_timestamp: float
-    client_timestamp: Optional[str] = None
+    client_timestamp: str | None = None
     verification_url: str
-    signer: Optional[Dict[str, Any]] = None
-    location: Optional[Dict[str, Any]] = None
+    signer: dict[str, Any] | None = None
+    location: dict[str, Any] | None = None
 
 
 class AssentChainResponse(BaseModel):
     object: str = "assent.chain"
     document_id: str
     namespace: str = ASSENT_NAMESPACE_NAME
-    events: List[AssentReceipt]
+    events: list[AssentReceipt]
     event_count: int
     chain_intact: bool
 
@@ -195,8 +195,8 @@ class AssentVerifyResponse(BaseModel):
     object: str = "assent.verify"
     hash: str = Field(description="SHA-256 hex queried")
     match_count: int = Field(description="Number of events with this document_hash")
-    document_ids: List[str] = Field(description="Unique document_ids across matches")
-    events: List[AssentReceipt] = Field(description="Matching events, ordered by chain position")
+    document_ids: list[str] = Field(description="Unique document_ids across matches")
+    events: list[AssentReceipt] = Field(description="Matching events, ordered by chain position")
 
 
 class AssentInclusionProof(BaseModel):
@@ -212,11 +212,11 @@ class AssentInclusionProof(BaseModel):
     mmr_root: str
     prev_root: str
     payload_hash: str
-    payload_json: Optional[str] = Field(
+    payload_json: str | None = Field(
         None, description="Exact preimage of payload_hash; names record_hash. Null only for records not yet backfilled.")
     timestamp: float
     algorithm: str = "sha256"
-    verification_steps: List[str]
+    verification_steps: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -569,7 +569,7 @@ async def verify_by_hash(
 
     receipts = [_event_to_receipt(r) for r in rows]
     # Deduplicate document_ids while preserving first-seen order.
-    seen: Dict[str, bool] = {}
+    seen: dict[str, bool] = {}
     for r in receipts:
         if r.document_id and r.document_id not in seen:
             seen[r.document_id] = True
@@ -593,9 +593,9 @@ def _hash_ip(ip: str) -> str:
 
 
 __all__ = [
-    "assent_router",
-    "ensure_assent_namespace",
     "ASSENT_NAMESPACE_ID",
     "ASSENT_NAMESPACE_NAME",
     "_limiter",
+    "assent_router",
+    "ensure_assent_namespace",
 ]

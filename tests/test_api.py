@@ -4,10 +4,9 @@ from __future__ import annotations
 import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 from fastapi import FastAPI
-
 
 # ---------------------------------------------------------------------------
 # Test app — just the proof router, no DB needed for chain-only tests
@@ -32,7 +31,7 @@ def _sha256(s: str) -> str:
     return hashlib.sha256(s.encode()).hexdigest()
 
 
-def _fake_chain_entry(leaf_index: int = 42, content_hash: str = None) -> MagicMock:
+def _fake_chain_entry(leaf_index: int = 42, content_hash: str | None = None) -> MagicMock:
     entry = MagicMock()
     entry.leaf_index = leaf_index
     entry.leaf_hash = "a" * 64

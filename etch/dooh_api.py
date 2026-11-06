@@ -17,11 +17,11 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 
 from .auth import AuthContext, require_auth
@@ -52,7 +52,7 @@ class CreateReceiptResponse(BaseModel):
 
 
 class ListReceiptsResponse(BaseModel):
-    data: List[SignedBundle]
+    data: list[SignedBundle]
     has_more: bool
     total: int
 
@@ -60,13 +60,13 @@ class ListReceiptsResponse(BaseModel):
 class VerifyRequest(BaseModel):
     bundle: SignedBundle
     manifest: IdentityManifest
-    trusted_root: Optional[str] = None
+    trusted_root: str | None = None
 
 
 class VerifyResponse(BaseModel):
     ok: bool
-    failed_steps: List[str]
-    warnings: List[str]
+    failed_steps: list[str]
+    warnings: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +78,11 @@ def _parse_iso_to_unix(ts: str) -> float:
         ts = ts[:-1] + "+00:00"
     dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.timestamp()
 
 
-def _row_to_bundle(row: RecordEntry) -> Optional[SignedBundle]:
+def _row_to_bundle(row: RecordEntry) -> SignedBundle | None:
     """Reconstruct a SignedBundle from the metadata blob we stored at submit time."""
     if not row.metadata_json:
         return None
@@ -95,7 +95,7 @@ def _row_to_bundle(row: RecordEntry) -> Optional[SignedBundle]:
         return None
     try:
         return SignedBundle.model_validate(bundle_dict)
-    except Exception:
+    except ValidationError:
         return None
 
 
@@ -208,11 +208,11 @@ async def create_receipt(
 @dooh_router.get("/v1/dooh/receipts", summary="Query DOOH playback receipts")
 async def list_receipts(
     auth: AuthContext = Depends(require_auth),
-    campaign_id: Optional[str] = Query(None, description="Filter by campaign_id"),
-    screen_id: Optional[str] = Query(None, description="Filter by screen_id"),
-    played_at_from: Optional[str] = Query(None, description="RFC 3339 lower bound on played_at (inclusive)"),
-    played_at_to: Optional[str] = Query(None, description="RFC 3339 upper bound on played_at (inclusive)"),
-    after: Optional[str] = Query(None, description="Cursor: return records after this record_id"),
+    campaign_id: str | None = Query(None, description="Filter by campaign_id"),
+    screen_id: str | None = Query(None, description="Filter by screen_id"),
+    played_at_from: str | None = Query(None, description="RFC 3339 lower bound on played_at (inclusive)"),
+    played_at_to: str | None = Query(None, description="RFC 3339 upper bound on played_at (inclusive)"),
+    after: str | None = Query(None, description="Cursor: return records after this record_id"),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> ListReceiptsResponse:
     """
@@ -242,7 +242,7 @@ async def list_receipts(
         rows_result = await session.execute(query.order_by(RecordEntry.leaf_index.desc()))
         rows = rows_result.scalars().all()
 
-    bundles: List[SignedBundle] = []
+    bundles: list[SignedBundle] = []
     for r in rows:
         bundle = _row_to_bundle(r)
         if bundle is None:
@@ -315,6 +315,6 @@ async def verify_receipt(
     )
 
 
-def _record_to_dict(metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _record_to_dict(metadata: dict[str, Any]) -> dict[str, Any]:
     """Tiny helper kept for symmetry with records_api in case we extend later."""
     return metadata

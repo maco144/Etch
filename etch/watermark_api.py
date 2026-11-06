@@ -22,7 +22,6 @@ Notes:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -55,18 +54,18 @@ class WatermarkResolved(BaseModel):
     pretty: str
     magic_url: str
     content_hash: str
-    label: Optional[str]
-    owner: Optional[str]
+    label: str | None
+    owner: str | None
     registered_at: float
 
 
 class ExtractResponse(BaseModel):
     found: bool
-    resolved: Optional[WatermarkResolved] = None
+    resolved: WatermarkResolved | None = None
     n_chunks: int
     n_repetitions: int
-    sync_score: Optional[float]
-    error: Optional[str] = None
+    sync_score: float | None
+    error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +85,7 @@ async def _read_upload(file: UploadFile) -> bytes:
     return blob
 
 
-async def _load_record(proof_id: int) -> Optional[ProofRecord]:
+async def _load_record(proof_id: int) -> ProofRecord | None:
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -98,7 +97,7 @@ async def _load_record(proof_id: int) -> Optional[ProofRecord]:
         return None
 
 
-def _decode(blob: bytes, filename: Optional[str]) -> tuple:
+def _decode(blob: bytes, filename: str | None) -> tuple:
     try:
         audio, sr = read_audio(blob, filename_hint=filename)
     except AudioIOError as exc:

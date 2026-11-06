@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -56,7 +59,7 @@ class InclusionProof:
     payload_hash: str
     timestamp: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "leaf_index": self.leaf_index,
             "leaf_hash": self.leaf_hash,
@@ -68,12 +71,12 @@ class InclusionProof:
         }
 
 
-def canonical_payload(payload: Dict[str, Any]) -> str:
+def canonical_payload(payload: dict[str, Any]) -> str:
     """The serialization every chain payload is hashed over. Changing it breaks every stored payload_hash."""
     return json.dumps(payload, sort_keys=True, default=str)
 
 
-def verify_payload_binding(payload_json: str, payload_hash: str) -> Optional[Dict[str, Any]]:
+def verify_payload_binding(payload_json: str, payload_hash: str) -> dict[str, Any] | None:
     """Return the decoded payload if ``payload_json`` is a JSON object and the preimage of ``payload_hash``, else None.
 
     With this, a proof covers the content itself: the leaf commits to payload_hash, payload_hash to
@@ -139,7 +142,7 @@ class AuditChain:
     def append(
         self,
         action_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         specialist: str = "",
         agent_id: str = "",
     ) -> ChainEntry:
@@ -183,7 +186,8 @@ class AuditChain:
             try:
                 hook(entry)
             except Exception:
-                pass  # Persistence failures must never crash the chain
+                # Must never crash the chain, but a leaf with no stored row has to leave a trace.
+                logger.exception(f"[Etch] persist hook failed for leaf {entry.leaf_index}")
 
         return entry
 
@@ -197,7 +201,7 @@ class AuditChain:
         with self._lock:
             return self._leaf_count
 
-    def generate_proof(self, leaf_index: int) -> Optional[InclusionProof]:
+    def generate_proof(self, leaf_index: int) -> InclusionProof | None:
         """
         Generate an InclusionProof for the entry at leaf_index.
         Returns None if the index is out of range.
@@ -233,7 +237,7 @@ class AuditChain:
 # Global singleton chain
 # ---------------------------------------------------------------------------
 
-_global_chain: Optional[AuditChain] = None
+_global_chain: AuditChain | None = None
 
 
 def get_chain() -> AuditChain:
@@ -246,7 +250,7 @@ def get_chain() -> AuditChain:
 
 def log_event(
     action_type: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     specialist: str = "",
     agent_id: str = "",
 ) -> ChainEntry:

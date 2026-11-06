@@ -19,20 +19,20 @@ Public API:
     )
 """
 from .keys import KeyPair
-from .receipt import Receipt, SignedBundle, EtchProof, sign_receipt, countersign
 from .manifest import IdentityManifest
+from .receipt import EtchProof, Receipt, SignedBundle, countersign, sign_receipt
 from .submitter import EtchSubmitter
-from .verifier import verify_bundle, VerifyResult
+from .verifier import VerifyResult, verify_bundle
 
 __all__ = [
+    "EtchProof",
+    "EtchSubmitter",
+    "IdentityManifest",
     "KeyPair",
     "Receipt",
     "SignedBundle",
-    "EtchProof",
-    "IdentityManifest",
-    "EtchSubmitter",
-    "sign_receipt",
-    "countersign",
-    "verify_bundle",
     "VerifyResult",
+    "countersign",
+    "sign_receipt",
+    "verify_bundle",
 ]

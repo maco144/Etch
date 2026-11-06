@@ -14,20 +14,20 @@ Modules:
 """
 from .payload import (
     PAYLOAD_BITS,
-    SYNC_PATTERN,
     SYNC_BITS,
-    pack_payload,
-    unpack_payload,
-    payload_bits_repeated,
+    SYNC_PATTERN,
     PayloadError,
+    pack_payload,
+    payload_bits_repeated,
+    unpack_payload,
 )
 
 __all__ = [
     "PAYLOAD_BITS",
-    "SYNC_PATTERN",
     "SYNC_BITS",
-    "pack_payload",
-    "unpack_payload",
-    "payload_bits_repeated",
+    "SYNC_PATTERN",
     "PayloadError",
+    "pack_payload",
+    "payload_bits_repeated",
+    "unpack_payload",
 ]

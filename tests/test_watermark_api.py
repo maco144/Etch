@@ -11,7 +11,6 @@ from fastapi import FastAPI
 from etch.glyph import encode_shortcode
 from etch.watermark.io import write_wav
 
-
 # ---------------------------------------------------------------------------
 # App + helpers
 # ---------------------------------------------------------------------------

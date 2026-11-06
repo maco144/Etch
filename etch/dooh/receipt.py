@@ -8,7 +8,7 @@ proof. See docs/dooh-spec.md for field rules.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +36,7 @@ class Receipt(BaseModel):
     screen_id: str
     sequence: int = Field(ge=0)
     venue_id: str
-    geo: Optional[Geo] = None
+    geo: Geo | None = None
 
     def canonical_bytes(self) -> bytes:
         """Canonical JSON bytes used as the message body for both signatures."""
@@ -63,7 +63,7 @@ class EtchProof(BaseModel):
     payload_hash: str
     # Preimage of payload_hash, naming the anchored record_hash. The verifier requires it: record_hash
     # below is not committed to by the leaf, so on its own it binds nothing.
-    payload_json: Optional[str] = None
+    payload_json: str | None = None
     timestamp: float
     record_hash: str  # = bundle_hash; cross-checked by verifier
 
@@ -75,7 +75,7 @@ class SignedBundle(BaseModel):
     receipt: Receipt
     player_sig: Signature
     venue_countersig: Signature
-    etch_proof: Optional[EtchProof] = None
+    etch_proof: EtchProof | None = None
 
     def bundle_hash(self) -> str:
         """SHA-256 hex over (canonical body || player_sig || venue_countersig).
@@ -125,10 +125,10 @@ def attach_proof(bundle: SignedBundle, proof: EtchProof) -> SignedBundle:
     return bundle.model_copy(update={"etch_proof": proof})
 
 
-def bundle_to_dict(bundle: SignedBundle) -> Dict[str, Any]:
+def bundle_to_dict(bundle: SignedBundle) -> dict[str, Any]:
     """Serialize for on-disk persistence (uses model_dump)."""
     return bundle.model_dump(exclude_none=True)
 
 
-def bundle_from_dict(data: Dict[str, Any]) -> SignedBundle:
+def bundle_from_dict(data: dict[str, Any]) -> SignedBundle:
     return SignedBundle.model_validate(data)

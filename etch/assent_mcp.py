@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from . import assent_agent as core
-from .assent_agent import MAX_PLAINTEXT_BYTES, AssentError, request_signature as _request_signature
+from .assent_agent import MAX_PLAINTEXT_BYTES, AssentError
+from .assent_agent import request_signature as _request_signature
 
 INSTRUCTIONS = """\
 Etch Assent asks a human to sign a document or approve an action, and records it on a
@@ -55,11 +56,11 @@ server = MCPServer(name="etch-assent", title="Etch Assent", instructions=INSTRUC
     ),
 )
 async def request_signature(
-    text: Optional[str] = None,
-    title: Optional[str] = None,
-    pdf_path: Optional[str] = None,
-    signer: Optional[str] = None,
-    requested_by: Optional[str] = None,
+    text: str | None = None,
+    title: str | None = None,
+    pdf_path: str | None = None,
+    signer: str | None = None,
+    requested_by: str | None = None,
 ) -> dict[str, Any]:
     """
     Args:
@@ -126,7 +127,7 @@ async def signature_status(document_id: str) -> dict[str, Any]:
         "Errors if the request is not finalized yet."
     ),
 )
-async def fetch_signed(document_id: str, output_path: Optional[str] = None) -> dict[str, Any]:
+async def fetch_signed(document_id: str, output_path: str | None = None) -> dict[str, Any]:
     """
     Args:
         document_id: The `document_id` returned by request_signature.

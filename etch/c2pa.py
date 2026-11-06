@@ -28,7 +28,7 @@ import hashlib
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -52,7 +52,7 @@ class C2PAAssertion(BaseModel):
     label: str = Field(
         description="Assertion type label (e.g. 'c2pa.created', 'c2pa.actions', 'c2pa.hash.data')"
     )
-    data: Dict[str, Any] = Field(
+    data: dict[str, Any] = Field(
         description="Assertion payload — structure depends on the label"
     )
 
@@ -62,26 +62,26 @@ class C2PAClaim(BaseModel):
     claim_generator: str = Field(
         description="Who generated this claim (e.g. 'Adobe Photoshop 25.0', 'Claude API')"
     )
-    claim_generator_info: Optional[Dict[str, Any]] = Field(
+    claim_generator_info: dict[str, Any] | None = Field(
         None, description="Additional info about the generator (version, build, etc.)"
     )
-    assertions: List[C2PAAssertion] = Field(
+    assertions: list[C2PAAssertion] = Field(
         min_length=1, description="One or more assertions about the content"
     )
-    signature: Optional[str] = Field(
+    signature: str | None = Field(
         None, description="Optional external PKI signature over the claim (hex-encoded)"
     )
 
 
 class C2PAIngredient(BaseModel):
     """Reference to a prior version or source asset."""
-    title: Optional[str] = Field(None, description="Human-readable title of the ingredient")
+    title: str | None = Field(None, description="Human-readable title of the ingredient")
     content_hash: str = Field(description="SHA-256 of the ingredient content")
     relationship: str = Field(
         default="parentOf",
         description="Relationship type: 'parentOf', 'componentOf', 'inputTo'"
     )
-    etch_proof_id: Optional[int] = Field(
+    etch_proof_id: int | None = Field(
         None, description="If the ingredient was registered on Etch, its proof_id"
     )
 
@@ -89,10 +89,10 @@ class C2PAIngredient(BaseModel):
 class C2PAManifestRequest(BaseModel):
     """Register a C2PA manifest on the Etch chain."""
     content_hash: str = Field(description="SHA-256 of the content this manifest describes (64 hex chars)")
-    title: Optional[str] = Field(None, max_length=500, description="Human-readable content title")
-    format: Optional[str] = Field(None, max_length=100, description="MIME type (e.g. 'image/png', 'application/pdf')")
+    title: str | None = Field(None, max_length=500, description="Human-readable content title")
+    format: str | None = Field(None, max_length=100, description="MIME type (e.g. 'image/png', 'application/pdf')")
     claim: C2PAClaim = Field(description="The C2PA claim with assertions")
-    ingredients: Optional[List[C2PAIngredient]] = Field(
+    ingredients: list[C2PAIngredient] | None = Field(
         None, description="Prior versions or source assets that fed into this content"
     )
 
@@ -102,7 +102,7 @@ class C2PAManifestReceipt(BaseModel):
     claim_id: int = Field(description="Etch proof_id — use this to retrieve/verify the manifest")
     content_hash: str
     manifest_hash: str = Field(description="SHA-256 of the deterministically serialized manifest")
-    title: Optional[str]
+    title: str | None
     claim_generator: str
     assertion_count: int
     ingredient_count: int
@@ -111,16 +111,16 @@ class C2PAManifestReceipt(BaseModel):
     mmr_root: str
     chain_depth: int
     # Embedded inclusion proof for offline verification
-    inclusion_proof: Dict[str, Any] = Field(description="Self-contained proof for offline verification")
+    inclusion_proof: dict[str, Any] = Field(description="Self-contained proof for offline verification")
 
 
 class C2PAVerifyRequest(BaseModel):
     """Verify a C2PA manifest against the Etch chain."""
     claim_id: int = Field(description="The claim_id (proof_id) returned at registration")
-    content_hash: Optional[str] = Field(
+    content_hash: str | None = Field(
         None, description="SHA-256 of the content to verify against"
     )
-    manifest: Optional[C2PAManifestRequest] = Field(
+    manifest: C2PAManifestRequest | None = Field(
         None, description="Full manifest to verify (checks manifest_hash match)"
     )
 
@@ -134,14 +134,14 @@ class C2PAVerifyResponse(BaseModel):
     verified: bool = Field(description="True only when all applicable checks pass")
     timestamp: float = Field(description="Original registration timestamp")
     mmr_root: str
-    details: Dict[str, Any] = Field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class C2PABridgeRequest(BaseModel):
     """Bridge an existing Etch proof into C2PA manifest format."""
     proof_id: int = Field(description="Existing Etch proof_id to bridge")
     claim_generator: str = Field(description="Claim generator identifier")
-    assertions: Optional[List[C2PAAssertion]] = Field(
+    assertions: list[C2PAAssertion] | None = Field(
         None, description="Additional assertions to attach (optional)"
     )
 

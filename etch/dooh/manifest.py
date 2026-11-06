@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,10 +24,10 @@ class IdentityManifest(BaseModel):
     schema_version: str = MANIFEST_SCHEMA_VERSION
     advertiser_id: str
     issued_at: str  # RFC 3339
-    screens: Dict[str, str] = Field(default_factory=dict)
-    venues: Dict[str, str] = Field(default_factory=dict)
+    screens: dict[str, str] = Field(default_factory=dict)
+    venues: dict[str, str] = Field(default_factory=dict)
 
-    def resolve(self, key_id: str) -> Optional[str]:
+    def resolve(self, key_id: str) -> str | None:
         """Return the base64url public key for `key_id`, or None if unknown."""
         return self.screens.get(key_id) or self.venues.get(key_id)
 
@@ -42,5 +41,5 @@ class IdentityManifest(BaseModel):
         Path(path).write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True))
 
     @classmethod
-    def load(cls, path: str | Path) -> "IdentityManifest":
+    def load(cls, path: str | Path) -> IdentityManifest:
         return cls.model_validate(json.loads(Path(path).read_text()))

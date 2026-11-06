@@ -8,14 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 from fastapi import FastAPI
 
-
 # ---------------------------------------------------------------------------
 # Test app
 # ---------------------------------------------------------------------------
 
 def _make_app() -> FastAPI:
-    from etch.c2pa import c2pa_router
     from etch.api import router as proof_router
+    from etch.c2pa import c2pa_router
     app = FastAPI()
     app.include_router(proof_router)
     app.include_router(c2pa_router)

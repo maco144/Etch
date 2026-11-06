@@ -17,7 +17,6 @@ Design:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -55,7 +54,7 @@ class GlyphBundle(BaseModel):
 # DB helper
 # ---------------------------------------------------------------------------
 
-async def _load_record(proof_id: int) -> Optional[ProofRecord]:
+async def _load_record(proof_id: int) -> ProofRecord | None:
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -246,7 +245,7 @@ async def resolver_page(shortcode: str) -> HTMLResponse:
     import datetime as _dt
 
     ts = record.created_at.timestamp() if hasattr(record.created_at, "timestamp") else record.created_at
-    iso = _dt.datetime.fromtimestamp(ts, _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    iso = _dt.datetime.fromtimestamp(ts, _dt.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     html = _RESOLVER_HTML.format(
         shortcode=shortcode.upper().replace("-", ""),

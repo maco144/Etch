@@ -16,8 +16,7 @@ by the caller (fetched out-of-band from the advertiser's published feed).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 from etch.chain import InclusionProof, verify_inclusion_proof, verify_payload_binding
 
@@ -32,8 +31,8 @@ _RECORD_COMMIT_ACTION = "record_commit"
 @dataclass
 class VerifyResult:
     ok: bool
-    failed_steps: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    failed_steps: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         return self.ok
@@ -45,14 +44,14 @@ def _parse_iso(ts: str) -> float:
         ts = ts[:-1] + "+00:00"
     dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.timestamp()
 
 
 def verify_bundle(
     bundle: SignedBundle,
     manifest: IdentityManifest,
-    trusted_root: Optional[str] = None,
+    trusted_root: str | None = None,
 ) -> VerifyResult:
     """Run the full offline verification flow.
 
@@ -62,8 +61,8 @@ def verify_bundle(
         trusted_root: optional published mmr_root for step 5. If None, step 5
             is skipped and a warning is added to the result.
     """
-    failed: List[str] = []
-    warnings: List[str] = []
+    failed: list[str] = []
+    warnings: list[str] = []
 
     if bundle.etch_proof is None:
         return VerifyResult(ok=False, failed_steps=["bundle has no etch_proof — never anchored"])

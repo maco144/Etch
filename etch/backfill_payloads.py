@@ -26,7 +26,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import select, update
 
@@ -43,12 +43,12 @@ BATCH = 1000
 
 
 def recover_payload(base: dict[str, Any], payload_hash: str, created_at: float,
-                    back: float = DEFAULT_WINDOW_BACK, forward: float = DEFAULT_WINDOW_FORWARD) -> Optional[str]:
+                    back: float = DEFAULT_WINDOW_BACK, forward: float = DEFAULT_WINDOW_FORWARD) -> str | None:
     """Return the canonical payload JSON that hashes to ``payload_hash``, or None if not in the window.
 
     Searched near-first: the last 10 ms (nearly every row), then ``forward`` ahead (clock steps), then
     the rest of ``back``. A miss costs the whole window, ~4.2M hashes per second of window."""
-    def scan(start: float, stop: float, direction: float) -> Optional[str]:
+    def scan(start: float, stop: float, direction: float) -> str | None:
         ts = start
         while (ts >= stop) if direction < 0 else (ts <= stop):
             text = canonical_payload({**base, "registered_at": ts})
@@ -73,7 +73,7 @@ def record_base(row: RecordEntry) -> dict[str, Any]:
     }
 
 
-def proof_base(row: ProofRecord) -> Optional[dict[str, Any]]:
+def proof_base(row: ProofRecord) -> dict[str, Any] | None:
     if row.action_type == "content_proof":
         return {"content_hash": row.content_hash, "label": row.label or "", "owner": row.owner or ""}
     if row.action_type == "c2pa_manifest" and row.proof_json:
@@ -104,7 +104,7 @@ class Report:
         return f"{table}: {self.recovered}/{self.scanned} recovered{tail}"
 
 
-async def _backfill(model, base_fn, label_fn, *, dry_run: bool, back: float, limit: Optional[int]) -> Report:
+async def _backfill(model, base_fn, label_fn, *, dry_run: bool, back: float, limit: int | None) -> Report:
     report = Report()
     last_id = 0
     while limit is None or report.scanned < limit:
@@ -140,7 +140,7 @@ async def _backfill(model, base_fn, label_fn, *, dry_run: bool, back: float, lim
 
 
 async def backfill(*, dry_run: bool = False, back: float = DEFAULT_WINDOW_BACK,
-                   limit: Optional[int] = None) -> dict[str, Report]:
+                   limit: int | None = None) -> dict[str, Report]:
     await create_tables()  # adds the payload_json columns if this database predates them
     return {
         "etch_records": await _backfill(RecordEntry, record_base, lambda r: r.record_id,

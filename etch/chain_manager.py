@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Dict, Optional
 
 from sqlalchemy import select
 
@@ -31,7 +30,7 @@ class ChainManager:
     """
 
     def __init__(self) -> None:
-        self._chains: Dict[str, AuditChain] = {}
+        self._chains: dict[str, AuditChain] = {}
         self._lock = threading.Lock()
 
     async def get_chain(self, namespace_id: str) -> AuditChain:
@@ -74,7 +73,7 @@ class ChainManager:
                 self._chains[namespace_id] = chain
             return self._chains[namespace_id]
 
-    def get_chain_sync(self, namespace_id: str) -> Optional[AuditChain]:
+    def get_chain_sync(self, namespace_id: str) -> AuditChain | None:
         """Get a cached chain without DB access. Returns None if not loaded yet."""
         with self._lock:
             return self._chains.get(namespace_id)
@@ -84,7 +83,7 @@ class ChainManager:
 # Global singleton
 # ---------------------------------------------------------------------------
 
-_manager: Optional[ChainManager] = None
+_manager: ChainManager | None = None
 
 
 def get_chain_manager() -> ChainManager:

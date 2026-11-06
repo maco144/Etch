@@ -17,15 +17,15 @@ from etch.sdk import (
     _sha256,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_app():
     """Create a fresh FastAPI app backed by an in-memory SQLite DB."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     import etch.db as db_module
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

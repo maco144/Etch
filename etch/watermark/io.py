@@ -15,7 +15,6 @@ from __future__ import annotations
 import io
 import shutil
 import subprocess
-from typing import Optional
 
 import numpy as np
 import soundfile as sf
@@ -69,7 +68,7 @@ def _read_via_ffmpeg(blob: bytes) -> tuple[np.ndarray, int]:
     return _to_mono_float64(data), sr
 
 
-def read_audio(blob: bytes, *, filename_hint: Optional[str] = None) -> tuple[np.ndarray, int]:
+def read_audio(blob: bytes, *, filename_hint: str | None = None) -> tuple[np.ndarray, int]:
     """
     Decode `blob` into mono float64 audio + sample rate.
 

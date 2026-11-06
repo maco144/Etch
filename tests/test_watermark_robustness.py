@@ -21,7 +21,6 @@ import pytest
 from etch.watermark.io import read_audio, write_wav
 from etch.watermark.pipeline import embed, extract
 
-
 pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH"),
@@ -98,7 +97,7 @@ CODEC_MATRIX = [
 
 @pytest.mark.parametrize("label,codec_args,hint", CODEC_MATRIX, ids=[c[0] for c in CODEC_MATRIX])
 def test_extract_survives_lossy_reencode(watermarked_wav, label, codec_args, hint):
-    wav, sr, expected_sc_int = watermarked_wav
+    wav, _sr, expected_sc_int = watermarked_wav
 
     encoded = _ffmpeg_transcode(wav, *codec_args)
     assert len(encoded) > 0
@@ -119,7 +118,7 @@ def test_extract_survives_lossy_reencode(watermarked_wav, label, codec_args, hin
 
 def test_extract_survives_lufs_normalization(watermarked_wav):
     """Simulate a LUFS normalizer — uniform gain change."""
-    wav, sr, expected_sc_int = watermarked_wav
+    wav, _sr, expected_sc_int = watermarked_wav
     encoded = _ffmpeg_transcode(
         wav,
         "-af", "volume=0.4",  # -8 dB-ish
@@ -137,7 +136,7 @@ def test_extract_survives_mp3_then_aac(watermarked_wav):
     (typical platform re-encode). The watermark has to survive both lossy
     passes — the most realistic worst-case pipeline.
     """
-    wav, sr, expected_sc_int = watermarked_wav
+    wav, _sr, expected_sc_int = watermarked_wav
     mp3 = _ffmpeg_transcode(wav, "-c:a", "libmp3lame", "-b:a", "128k", "-f", "mp3")
     aac = _ffmpeg_transcode(mp3, "-c:a", "aac", "-b:a", "128k", "-f", "adts")
     audio, decoded_sr = read_audio(aac, filename_hint="out.aac")

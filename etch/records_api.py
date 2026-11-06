@@ -21,11 +21,11 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 
 from .auth import AuthContext, require_auth
 from .chain import RECORD_COMMIT_VERIFICATION_STEPS
@@ -48,7 +48,7 @@ records_router = APIRouter(tags=["Etch Records"])
 # ---------------------------------------------------------------------------
 
 _stats_lock = threading.Lock()
-_stats: Dict[str, Dict[str, int]] = {}
+_stats: dict[str, dict[str, int]] = {}
 _stats_since: float = time.time()
 
 
@@ -58,7 +58,7 @@ def _bump(namespace_id: str, key: str) -> None:
         counts[key] += 1
 
 
-def _read_stats(namespace_id: str) -> Dict[str, int]:
+def _read_stats(namespace_id: str) -> dict[str, int]:
     with _stats_lock:
         counts = _stats.get(namespace_id, {"appended": 0, "deduplicated": 0})
         return dict(counts)
@@ -77,15 +77,15 @@ def _reset_stats() -> None:
 # ---------------------------------------------------------------------------
 
 class RecordData(BaseModel):
-    type: Optional[str] = Field(None, max_length=200, description="Freeform record type (e.g. salesforce.opportunity)")
-    id: Optional[str] = Field(None, max_length=200, description="External record ID (e.g. 0065g00000XYZ)")
-    data: Optional[Dict[str, Any]] = Field(None, description="Record payload — hashed, never stored")
+    type: str | None = Field(None, max_length=200, description="Freeform record type (e.g. salesforce.opportunity)")
+    id: str | None = Field(None, max_length=200, description="External record ID (e.g. 0065g00000XYZ)")
+    data: dict[str, Any] | None = Field(None, description="Record payload — hashed, never stored")
 
 
 class CreateRecordRequest(BaseModel):
-    record: Optional[RecordData] = Field(None, description="Record to commit")
-    record_hash: Optional[str] = Field(None, description="Pre-computed SHA-256 hex (64 chars) — use when data shouldn't leave your network")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata stored alongside the hash (actor, source, action)")
+    record: RecordData | None = Field(None, description="Record to commit")
+    record_hash: str | None = Field(None, description="Pre-computed SHA-256 hex (64 chars) — use when data shouldn't leave your network")
+    metadata: dict[str, Any] | None = Field(None, description="Metadata stored alongside the hash (actor, source, action)")
     if_changed: bool = Field(
         False,
         description=(
@@ -107,10 +107,10 @@ class RecordReceipt(BaseModel):
     chain_depth: int = Field(description="Total records in namespace chain")
     timestamp: float = Field(description="Unix timestamp (seconds, UTC)")
     namespace: str = Field(description="Namespace ID")
-    record_type: Optional[str] = None
-    external_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    verification_url: Optional[str] = None
+    record_type: str | None = None
+    external_id: str | None = None
+    metadata: dict[str, Any] | None = None
+    verification_url: str | None = None
     deduplicated: bool = Field(
         False,
         description="True when if_changed suppressed an append and this is a pre-existing receipt",
@@ -125,17 +125,17 @@ class InclusionProofResponse(BaseModel):
     mmr_root: str
     prev_root: str
     payload_hash: str
-    payload_json: Optional[str] = Field(
+    payload_json: str | None = Field(
         None, description="Exact preimage of payload_hash; names record_hash. Null only for records not yet backfilled.")
     timestamp: float
     algorithm: str = "sha256"
-    verification_steps: List[str]
+    verification_steps: list[str]
 
 
 class VerifyRecordRequest(BaseModel):
     record_id: str = Field(description="Etch record ID to verify")
-    record: Optional[RecordData] = Field(None, description="Record data to verify against")
-    record_hash: Optional[str] = Field(None, description="Pre-computed SHA-256 hex to verify")
+    record: RecordData | None = Field(None, description="Record data to verify against")
+    record_hash: str | None = Field(None, description="Pre-computed SHA-256 hex to verify")
 
 
 class VerifyRecordResponse(BaseModel):
@@ -168,7 +168,7 @@ class RecordsStatsResponse(BaseModel):
 
 class RecordListResponse(BaseModel):
     object: str = "list"
-    data: List[RecordReceipt]
+    data: list[RecordReceipt]
     has_more: bool
     total: int
 
@@ -181,7 +181,7 @@ def _sha256(data: str) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
-def _hash_record_data(data: Dict[str, Any]) -> str:
+def _hash_record_data(data: dict[str, Any]) -> str:
     """Deterministic hash of record data."""
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -207,8 +207,8 @@ def _receipt_from_row(row: RecordEntry, deduplicated: bool = False) -> RecordRec
 async def _latest_record_for_external_id(
     namespace_id: str,
     external_id: str,
-    record_type: Optional[str],
-) -> Optional[RecordEntry]:
+    record_type: str | None,
+) -> RecordEntry | None:
     """
     Latest record for (namespace_id, external_id, record_type), newest chain
     position first. Served by idx_records_ns_ext_leaf. Returns None on any DB
@@ -339,11 +339,11 @@ async def create_record(body: CreateRecordRequest, auth: AuthContext = Depends(r
 @records_router.get("/v1/records", summary="List and filter records")
 async def list_records(
     auth: AuthContext = Depends(require_auth),
-    type: Optional[str] = Query(None, description="Filter by record type"),
-    external_id: Optional[str] = Query(None, description="Filter by external ID"),
-    actor: Optional[str] = Query(None, description="Filter by metadata actor (substring match)"),
-    after: Optional[str] = Query(None, description="Cursor: return records after this record_id"),
-    before: Optional[str] = Query(None, description="Cursor: return records before this record_id"),
+    type: str | None = Query(None, description="Filter by record type"),
+    external_id: str | None = Query(None, description="Filter by external ID"),
+    actor: str | None = Query(None, description="Filter by metadata actor (substring match)"),
+    after: str | None = Query(None, description="Cursor: return records after this record_id"),
+    before: str | None = Query(None, description="Cursor: return records before this record_id"),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> RecordListResponse:
     """List records in the authenticated namespace with optional filters."""

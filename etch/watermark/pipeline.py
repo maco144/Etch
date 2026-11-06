@@ -7,16 +7,15 @@ callers should downmix or watermark each channel independently.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
 from .payload import (
     PAYLOAD_BITS,
+    PayloadError,
     pack_payload,
     payload_bits_repeated,
     unpack_payload,
-    PayloadError,
 )
 from .spread import (
     DEFAULT_ALPHA,
@@ -35,13 +34,13 @@ DEFAULT_CHUNK_SECONDS = 1.0
 class ExtractResult:
     """Outcome of a watermark extraction attempt."""
     found: bool
-    shortcode_int: Optional[int]
-    version: Optional[int]
+    shortcode_int: int | None
+    version: int | None
     n_chunks: int
     n_repetitions: int
-    sync_offset: Optional[int]
-    sync_score: Optional[float]
-    error: Optional[str] = None
+    sync_offset: int | None
+    sync_score: float | None
+    error: str | None = None
 
 
 def _split_chunks(audio: np.ndarray, chunk_size: int) -> tuple[np.ndarray, int]:
@@ -79,7 +78,7 @@ def embed(
     if audio.ndim != 1:
         raise ValueError("embed expects 1-D mono audio")
 
-    chunk_size = int(round(chunk_seconds * sr))
+    chunk_size = round(chunk_seconds * sr)
     if chunk_size <= 0:
         raise ValueError("chunk_seconds * sr must be positive")
 
@@ -124,7 +123,7 @@ def extract(
     if audio.ndim != 1:
         return ExtractResult(False, None, None, 0, 0, None, None, error="audio must be 1-D mono")
 
-    chunk_size = int(round(chunk_seconds * sr))
+    chunk_size = round(chunk_seconds * sr)
     chunked, n_chunks = _split_chunks(audio, chunk_size)
     if n_chunks < PAYLOAD_BITS:
         return ExtractResult(False, None, None, n_chunks, 0, None, None,

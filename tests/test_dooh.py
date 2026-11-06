@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from etch.chain import canonical_payload
 from etch.dooh import (
@@ -38,7 +39,6 @@ from etch.dooh.receipt import (
     attach_proof,
     build_unsigned_bundle,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,7 +102,7 @@ class TestCanonical:
 
     def test_unicode_passthrough(self):
         out = canonicalize({"name": "café"})
-        assert "café".encode("utf-8") in out
+        assert "café".encode() in out
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ class TestReceipt:
         assert b"geo" not in body
 
     def test_creative_hash_pattern_enforced(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             Receipt(
                 advertiser_id="a",
                 campaign_id="c",
@@ -225,7 +225,7 @@ class TestVerifier:
         # Receipt's played_at is in 2026; for the verifier's step-6 check to
         # pass we need etch_proof.timestamp >= that, so use a fixed UTC ts.
         played = "2026-04-27T18:42:13.000Z"
-        played_unix = datetime.fromisoformat(played.replace("Z", "+00:00")).timestamp()
+        played_unix = datetime.fromisoformat(played).timestamp()
         r = _make_receipt(played_at=played)
         ps = sign_receipt(r, p)
         vs = countersign(r, v)
@@ -355,10 +355,11 @@ class TestVerifier:
 @pytest.fixture
 async def etch_app_with_key():
     """Spin up a real Etch ASGI app with an in-memory DB and a bootstrapped namespace."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     import etch.chain as chain_module
     import etch.chain_manager as cm_module
     import etch.db as db_module
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -369,9 +370,9 @@ async def etch_app_with_key():
     chain_module._global_chain = None
     cm_module._manager = None
 
+    from etch.auth import bootstrap_namespace
     from etch.models import Base
     from etch.server import app
-    from etch.auth import bootstrap_namespace
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -394,7 +395,7 @@ async def test_e2e_submit_and_verify(etch_app_with_key):
     m.add_screen(p.key_id, p.public_b64)
     m.add_venue(v.key_id, v.public_b64)
 
-    r = _make_receipt(played_at=datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"))
+    r = _make_receipt(played_at=datetime.now(tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"))
     bundle = build_unsigned_bundle(r, sign_receipt(r, p), countersign(r, v))
 
     # Submit via async httpx + ASGI transport, mimicking what EtchSubmitter does.
@@ -455,7 +456,7 @@ class TestDoohRouter:
     """Tests for /v1/dooh/* endpoints."""
 
     async def _build_bundle(self, played_at: str | None = None, screen: str = "screen:e2e",
-                            campaign: str = "Q2-2026", sequence: int = 1) -> tuple[Receipt, "Signature", "Signature", IdentityManifest]:
+                            campaign: str = "Q2-2026", sequence: int = 1) -> tuple[Receipt, Signature, Signature, IdentityManifest]:
         from etch.dooh.receipt import Geo
         p = KeyPair.generate(f"{screen}#k1")
         v = KeyPair.generate("venue:e2e#k1")
@@ -467,7 +468,7 @@ class TestDoohRouter:
             campaign_id=campaign,
             creative_hash="sha256:" + "a" * 64,
             duration_ms=15000,
-            played_at=played_at or datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            played_at=played_at or datetime.now(tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             screen_id=screen,
             sequence=sequence,
             venue_id="venue:e2e",

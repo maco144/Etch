@@ -12,7 +12,7 @@ A single httpx.Client is reused so micro-batches share one HTTP keep-alive.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Self
 
 import httpx
 
@@ -26,7 +26,7 @@ class EtchSubmitter:
     api_key: str
     base_url: str = "http://localhost:8100"
     timeout: float = 10.0
-    _client: Optional[httpx.Client] = None
+    _client: httpx.Client | None = None
 
     def __post_init__(self) -> None:
         self._client = httpx.Client(
@@ -40,7 +40,7 @@ class EtchSubmitter:
             self._client.close()
             self._client = None
 
-    def __enter__(self) -> "EtchSubmitter":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_exc: object) -> None:

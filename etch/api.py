@@ -23,11 +23,10 @@ import hashlib
 import json
 import logging
 import time
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, or_
+from sqlalchemy import func, or_, select
 
 from .chain import get_chain, log_event
 from .db import get_session
@@ -43,21 +42,21 @@ router = APIRouter(prefix="/v1/proof", tags=["Etch"])
 # ---------------------------------------------------------------------------
 
 class ProofRequest(BaseModel):
-    content: Optional[str] = Field(
+    content: str | None = Field(
         None,
         description="Raw content to hash and register. Mutually exclusive with content_hash.",
     )
-    content_hash: Optional[str] = Field(
+    content_hash: str | None = Field(
         None,
         description="Pre-computed SHA-256 hex of the content (64 chars). Use when you want "
                     "to register without transmitting the raw content.",
     )
-    label: Optional[str] = Field(
+    label: str | None = Field(
         None,
         max_length=200,
         description="Human-readable label for this proof (e.g. 'Article: My Post Title').",
     )
-    owner: Optional[str] = Field(
+    owner: str | None = Field(
         None,
         max_length=200,
         description="Owner identifier (e.g. user ID, wallet address, email hash).",
@@ -67,8 +66,8 @@ class ProofRequest(BaseModel):
 class ProofReceipt(BaseModel):
     proof_id: int = Field(description="MMR leaf index — unique, monotonically increasing")
     content_hash: str = Field(description="SHA-256 hex of the registered content")
-    label: Optional[str]
-    owner: Optional[str]
+    label: str | None
+    owner: str | None
     timestamp: float = Field(description="Unix timestamp (seconds, UTC)")
     leaf_hash: str = Field(description="SHA-256 commitment: hash(prev_root:action:payload_hash:ts)")
     mmr_root: str = Field(description="MMR root after this leaf was appended")
@@ -81,8 +80,8 @@ class BatchProofRequest(BaseModel):
 
 class BatchProofItemResult(BaseModel):
     """Result for a single item in a batch — either a receipt or an error."""
-    receipt: Optional[ProofReceipt] = None
-    error: Optional[str] = None
+    receipt: ProofReceipt | None = None
+    error: str | None = None
     index: int = Field(description="Position of this item in the request batch")
 
 
@@ -92,11 +91,11 @@ class BatchProofResponse(BaseModel):
 
 
 class VerifyRequest(BaseModel):
-    content: Optional[str] = Field(
+    content: str | None = Field(
         None,
         description="Raw content to verify against the stored proof.",
     )
-    content_hash: Optional[str] = Field(
+    content_hash: str | None = Field(
         None,
         description="Pre-computed SHA-256 hex to verify.",
     )
@@ -118,7 +117,7 @@ def _sha256(data: str) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
-async def _persist_to_db(entry, content_hash: str, label: Optional[str], owner: Optional[str]):
+async def _persist_to_db(entry, content_hash: str, label: str | None, owner: str | None):
     """Persist a chain entry to the database."""
     try:
         async with get_session() as session:

@@ -7,7 +7,6 @@ from pathlib import Path
 import httpx
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -20,6 +19,7 @@ async def http(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # assent_docs_api caches DOC_DIR at import time, so we re-import it after
     # setting the env var.
     import importlib
+
     import etch.assent_docs_api as mod
     importlib.reload(mod)
 
@@ -30,10 +30,11 @@ async def http(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     mod._upload_limiter.reset()
 
     # In-memory SQLite for the other routers so their tables exist during app lifespan.
-    import etch.db as db_module
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     import etch.chain as chain_module
     import etch.chain_manager as cm_module
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    import etch.db as db_module
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

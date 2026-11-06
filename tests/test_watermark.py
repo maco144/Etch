@@ -6,15 +6,14 @@ import pytest
 
 from etch.watermark.payload import (
     PAYLOAD_BITS,
+    PayloadError,
+    crc12,
     pack_payload,
     payload_bits_repeated,
     unpack_payload,
-    crc12,
-    PayloadError,
 )
 from etch.watermark.pipeline import embed, extract
 from etch.watermark.sync import find_alignment, majority_decode
-
 
 # ---------------------------------------------------------------------------
 # Synthetic audio generators — stand in for real music in unit tests.
@@ -105,7 +104,7 @@ class TestSync:
             assert score > 0
 
             hard = majority_decode(soft, offset)
-            v, s = unpack_payload(hard)
+            _, s = unpack_payload(hard)
             assert s == sc_int
 
 

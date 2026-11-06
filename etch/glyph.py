@@ -139,7 +139,7 @@ def render_bar_sigil(
         bbox = draw.textbbox((0, 0), label)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
-    except Exception:
+    except (AttributeError, OSError, ValueError):
         tw, th = len(label) * 6, 11
     tx = (width - tw) // 2
     ty = margin_y_top + bar_area_h + (label_h - th) // 2

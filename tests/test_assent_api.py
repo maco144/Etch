@@ -1,23 +1,22 @@
 """Tests for the public, anonymous Etch Assent API (/v1/assent/*)."""
 from __future__ import annotations
 
-
 import hashlib
 import json
 
 import httpx
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures — mirror the pattern used in test_records_api.py
 # ---------------------------------------------------------------------------
 
 def _make_app():
-    import etch.db as db_module
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     import etch.chain as chain_module
     import etch.chain_manager as cm_module
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    import etch.db as db_module
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -50,8 +49,8 @@ def _make_app():
 async def http():
     app, engine, originals = _make_app()
 
+    from etch.assent_api import _followon_limiter, _limiter, ensure_assent_namespace
     from etch.models import Base
-    from etch.assent_api import ensure_assent_namespace, _limiter, _followon_limiter
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await ensure_assent_namespace()
@@ -190,7 +189,7 @@ class TestStamp:
 
         # Chain read-back also carries signer/location on the signed event.
         chain = (await http.get("/v1/assent/chain/doc_abc123")).json()
-        signed = [e for e in chain["events"] if e["event_type"] == "signed"][0]
+        signed = next(e for e in chain["events"] if e["event_type"] == "signed")
         assert signed["signer"]["credential_id"] == "abc"
         assert signed["location"]["page"] == 1
 

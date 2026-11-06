@@ -27,13 +27,13 @@ is transmitted to the server. Raw content never leaves the client.
 """
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Self
 
 import httpx
-
 
 # ---------------------------------------------------------------------------
 # Response models — v2 (SoR)
@@ -50,9 +50,9 @@ class RecordReceipt:
     chain_depth: int
     timestamp: float
     namespace: str
-    record_type: Optional[str] = None
-    external_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    record_type: str | None = None
+    external_id: str | None = None
+    metadata: dict[str, Any] | None = None
     deduplicated: bool = False
     """True when if_changed matched an existing receipt and nothing was appended."""
 
@@ -79,10 +79,10 @@ class InclusionProof:
     payload_hash: str
     timestamp: float
     algorithm: str
-    verification_steps: List[str]
-    payload_json: Optional[str] = None
+    verification_steps: list[str]
+    payload_json: str | None = None
 
-    def verify(self, record_hash: Optional[str] = None) -> bool:
+    def verify(self, record_hash: str | None = None) -> bool:
         """Check the proof offline, without trusting Etch.
 
         Recomputes leaf_hash and mmr_root, and checks that payload_json is the preimage of payload_hash.
@@ -131,8 +131,8 @@ class ProofReceipt:
     """Receipt returned after registering content on the Etch chain (legacy)."""
     proof_id: int
     content_hash: str
-    label: Optional[str]
-    owner: Optional[str]
+    label: str | None
+    owner: str | None
     timestamp: float
     leaf_hash: str
     mmr_root: str
@@ -154,8 +154,8 @@ class ProofRecord:
     """A proof record returned from lookup or listing endpoints (legacy)."""
     proof_id: int
     content_hash: str
-    label: Optional[str]
-    owner: Optional[str]
+    label: str | None
+    owner: str | None
     timestamp: float
     leaf_hash: str
     mmr_root: str
@@ -167,8 +167,8 @@ class ChainStats:
     total_proofs: int
     chain_depth: int
     mmr_root: str
-    first_proof_at: Optional[float]
-    last_proof_at: Optional[float]
+    first_proof_at: float | None
+    last_proof_at: float | None
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ def _sha256(data: str | bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _hash_data(data: Dict[str, Any]) -> str:
+def _hash_data(data: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
 
@@ -215,7 +215,7 @@ def _raise_for_status(response: httpx.Response) -> None:
     try:
         body = response.json()
         detail = body.get("detail", "")
-    except Exception:
+    except (ValueError, AttributeError):  # not JSON, or JSON that isn't an object
         detail = response.text
     status = response.status_code
     if status == 404:
@@ -245,11 +245,11 @@ class RecordsResource:
     async def create(
         self,
         *,
-        data: Dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
         record_hash: str | None = None,
         record_type: str | None = None,
         record_id: str | None = None,
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
         if_changed: bool = False,
     ) -> RecordReceipt:
         """
@@ -268,7 +268,7 @@ class RecordsResource:
         else:
             raise EtchValidationError("Provide either data or record_hash")
 
-        body: Dict[str, Any] = {}
+        body: dict[str, Any] = {}
         if data is not None:
             body["record"] = {"type": record_type, "id": record_id, "data": data}
         else:
@@ -327,11 +327,11 @@ class RecordsResource:
         self,
         record_id: str,
         *,
-        data: Dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
         record_hash: str | None = None,
     ) -> RecordVerifyResult:
         """Verify a record against the chain."""
-        body: Dict[str, Any] = {"record_id": record_id}
+        body: dict[str, Any] = {"record_id": record_id}
         if data is not None:
             body["record_hash"] = _hash_data(data)
         elif record_hash is not None:
@@ -397,9 +397,9 @@ class RecordsResource:
         after: str | None = None,
         before: str | None = None,
         limit: int = 50,
-    ) -> List[RecordReceipt]:
+    ) -> builtins.list[RecordReceipt]:
         """List records with optional filters."""
-        params: Dict[str, Any] = {"limit": limit}
+        params: dict[str, Any] = {"limit": limit}
         if type:
             params["type"] = type
         if external_id:
@@ -498,7 +498,7 @@ class EtchClient:
             return {"Authorization": f"Bearer {self._api_key}"}
         return {}
 
-    async def __aenter__(self) -> EtchClient:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:

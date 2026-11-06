@@ -36,19 +36,19 @@ class KeyPair:
     _public: Ed25519PublicKey
 
     @classmethod
-    def generate(cls, key_id: str) -> "KeyPair":
+    def generate(cls, key_id: str) -> KeyPair:
         priv = Ed25519PrivateKey.generate()
         return cls(key_id=key_id, _private=priv, _public=priv.public_key())
 
     @classmethod
-    def from_seed(cls, key_id: str, seed: bytes) -> "KeyPair":
+    def from_seed(cls, key_id: str, seed: bytes) -> KeyPair:
         if len(seed) != 32:
             raise ValueError("ed25519 seed must be 32 bytes")
         priv = Ed25519PrivateKey.from_private_bytes(seed)
         return cls(key_id=key_id, _private=priv, _public=priv.public_key())
 
     @classmethod
-    def load(cls, path: str | Path) -> "KeyPair":
+    def load(cls, path: str | Path) -> KeyPair:
         import json
         data = json.loads(Path(path).read_text())
         if "key_id" not in data or "seed" not in data:

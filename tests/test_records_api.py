@@ -21,17 +21,17 @@ from etch.sdk import (
     _hash_data,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_app():
     """Create a fresh FastAPI app backed by an in-memory SQLite DB."""
-    import etch.db as db_module
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
     import etch.chain as chain_module
     import etch.chain_manager as cm_module
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    import etch.db as db_module
 
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

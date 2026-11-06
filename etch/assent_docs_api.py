@@ -30,7 +30,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from .assent_api import _SlidingWindowLimiter, _client_ip
+from .assent_api import _client_ip, _SlidingWindowLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -280,8 +280,8 @@ async def replace_document(
 
 
 __all__ = [
-    "assent_docs_router",
     "DOC_DIR",
     "MAX_DOCUMENT_BYTES",
     "_upload_limiter",
+    "assent_docs_router",
 ]
