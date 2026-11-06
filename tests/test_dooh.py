@@ -19,6 +19,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from etch.chain import canonical_payload
 from etch.dooh import (
     IdentityManifest,
     KeyPair,
@@ -67,11 +68,11 @@ def _make_etch_proof_for(bundle: SignedBundle, ts: float | None = None) -> EtchP
     if ts is None:
         ts = time.time()
     bundle_hash = bundle.bundle_hash()
-    # Use bundle_hash as the payload_hash for self-contained test proofs.
-    # In production Etch wraps payload with namespace/registered_at, so production
-    # payload_hash != bundle_hash. The verifier's step-3 check binds bundle to
-    # record_hash; verify_inclusion_proof only checks proof internal consistency.
-    payload_hash = bundle_hash
+    payload_json = canonical_payload({
+        "record_hash": bundle_hash, "record_type": "dooh-receipt", "external_id": bundle.receipt.campaign_id,
+        "namespace": "ns_test", "registered_at": ts,
+    })
+    payload_hash = hashlib.sha256(payload_json.encode()).hexdigest()
     prev_root = "0" * 64
     leaf = hashlib.sha256(f"{prev_root}:record_commit:{payload_hash}:{ts}".encode()).hexdigest()
     root = hashlib.sha256(f"{prev_root}:{leaf}".encode()).hexdigest()
@@ -83,6 +84,7 @@ def _make_etch_proof_for(bundle: SignedBundle, ts: float | None = None) -> EtchP
         mmr_root=root,
         prev_root=prev_root,
         payload_hash=payload_hash,
+        payload_json=payload_json,
         timestamp=ts,
         record_hash=bundle_hash,
     )
@@ -295,6 +297,45 @@ class TestVerifier:
         assert not result.ok
         assert any("played_at" in s for s in result.failed_steps)
 
+    def test_proof_for_another_bundle_fails_even_at_a_trusted_root(self):
+        # A genuine, chain-valid proof re-pointed at a different bundle. record_hash is a free field: only
+        # payload_json, which the leaf commits to, says which bundle this leaf anchored.
+        bundle, m = self._setup()
+        other, _ = self._setup()
+        forged = attach_proof(bundle, other.etch_proof.model_copy(update={"record_hash": bundle.bundle_hash()}))
+        result = verify_bundle(forged, m, trusted_root=forged.etch_proof.mmr_root)
+        assert not result.ok
+        assert any("different record" in s for s in result.failed_steps)
+
+    def test_proof_without_payload_json_fails(self):
+        # Must fail, not warn: otherwise stripping the field dodges the check above.
+        bundle, m = self._setup()
+        stripped = attach_proof(bundle, bundle.etch_proof.model_copy(update={"payload_json": None}))
+        result = verify_bundle(stripped, m)
+        assert not result.ok
+        assert any("payload_json" in s for s in result.failed_steps)
+
+    def test_altered_payload_json_fails(self):
+        bundle, m = self._setup()
+        altered = bundle.etch_proof.payload_json + " "
+        result = verify_bundle(attach_proof(bundle, bundle.etch_proof.model_copy(
+            update={"payload_json": altered})), m)
+        assert not result.ok
+        assert any("payload_hash" in s for s in result.failed_steps)
+
+    @pytest.mark.parametrize("junk", ["not json", "[1, 2]", "null"])
+    def test_payload_json_that_hashes_but_is_not_an_object_fails_cleanly(self, junk):
+        # Reachable from POST /v1/dooh/verify: a caller picks payload_hash = SHA256(junk) and a matching leaf.
+        bundle, m = self._setup()
+        proof = bundle.etch_proof
+        payload_hash = hashlib.sha256(junk.encode()).hexdigest()
+        leaf = hashlib.sha256(f"{proof.prev_root}:record_commit:{payload_hash}:{proof.timestamp}".encode()).hexdigest()
+        forged = proof.model_copy(update={
+            "payload_json": junk, "payload_hash": payload_hash, "leaf_hash": leaf,
+            "mmr_root": hashlib.sha256(f"{proof.prev_root}:{leaf}".encode()).hexdigest(),
+        })
+        assert not verify_bundle(attach_proof(bundle, forged), m).ok
+
     def test_no_etch_proof(self):
         p = KeyPair.generate("screen:nyc-01#k1")
         v = KeyPair.generate("venue:outfront#k1")
@@ -382,20 +423,15 @@ async def test_e2e_submit_and_verify(etch_app_with_key):
         mmr_root=p_data["mmr_root"],
         prev_root=p_data["prev_root"],
         payload_hash=p_data["payload_hash"],
+        payload_json=p_data["payload_json"],
         timestamp=p_data["timestamp"],
         record_hash=bundle_hash,
     )
     bundle = attach_proof(bundle, proof)
 
-    # Verifier passes for sigs + step 3 (bundle_hash match) + step 6 (timing).
-    # Step 4 (chain consistency) checks the proof's internal SHA hashes —
-    # for production Etch payloads the wrapped payload_hash is NOT bundle_hash,
-    # so we expect step 4 to fail here. That's a known v0 limitation noted in
-    # docs/dooh-spec.md; the binding is closed by Etch's POST /v1/records/verify.
-    result = verify_bundle(bundle, m)
-    # Sigs and binding are correct:
-    assert all("sig" not in s for s in result.failed_steps)
-    assert all("bundle_hash" not in s for s in result.failed_steps)
+    # A real proof from the live API passes offline, content binding included.
+    result = verify_bundle(bundle, m, trusted_root=proof.mmr_root)
+    assert result.ok, result.failed_steps
     # Cross-check via Etch's verify endpoint (online, not offline):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -441,7 +477,7 @@ class TestDoohRouter:
 
     async def test_post_receipts_anchors_and_returns_bundle_with_proof(self, etch_app_with_key):
         app, api_key = etch_app_with_key
-        r, ps, vs, _m = await self._build_bundle()
+        r, ps, vs, m = await self._build_bundle()
         bundle = build_unsigned_bundle(r, ps, vs)
 
         transport = httpx.ASGITransport(app=app)
@@ -451,11 +487,18 @@ class TestDoohRouter:
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={"bundle": bundle.model_dump(exclude_none=True)},
             )
+            listed = await client.get("/v1/dooh/receipts", headers={"Authorization": f"Bearer {api_key}"})
         assert resp.status_code == 200, resp.text
         returned = SignedBundle.model_validate(resp.json()["bundle"])
         assert returned.etch_proof is not None
         assert returned.etch_proof.record_hash == bundle.bundle_hash()
         assert returned.etch_proof.leaf_index == 0
+        # Both routes hand back a bundle that passes the full offline check, content binding included.
+        assert listed.status_code == 200, listed.text
+        from_list = SignedBundle.model_validate(listed.json()["data"][0])
+        for b in (returned, from_list):
+            result = verify_bundle(b, m, trusted_root=b.etch_proof.mmr_root)
+            assert result.ok, result.failed_steps
 
     async def test_post_receipts_rejects_pre_anchored_bundle(self, etch_app_with_key):
         app, api_key = etch_app_with_key

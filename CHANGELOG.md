@@ -107,6 +107,11 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Fixed
 
+- **DOOH proofs bind the bundle.** The verifier compared `bundle_hash` to `etch_proof.record_hash`,
+  a field the chain leaf doesn't commit to, so a genuine proof for one receipt could be re-pointed at
+  another bundle and pass, even against a trusted root. `EtchProof` now carries `payload_json`, and
+  `verify_bundle` requires it to hash to `payload_hash` and name the bundle. **Breaking for verifiers:**
+  a proof without `payload_json` fails; `GET /v1/dooh/receipts` returns it for anchored bundles.
 - **Send-to-sign verify links resolve.** The link and QR stamped on every send-to-sign PDF carry
   the server-issued document id, which has no `doc_` prefix; the Verify page rejected it as an
   "Unrecognized identifier". Any token that isn't a record id is now looked up as a document id.

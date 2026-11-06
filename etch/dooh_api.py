@@ -198,6 +198,7 @@ async def create_receipt(
         mmr_root=entry.mmr_root,
         prev_root=prev_root,
         payload_hash=entry.payload_hash,
+        payload_json=entry.payload_json,
         timestamp=entry.created_at,
         record_hash=bundle_hash,
     )
@@ -278,6 +279,7 @@ async def list_receipts(
             mmr_root=r.mmr_root,
             prev_root=prev_root,
             payload_hash=r.payload_hash,
+            payload_json=r.payload_json,
             timestamp=r.created_at_exact or r.created_at.timestamp(),
             record_hash=r.record_hash,
         )

@@ -100,6 +100,7 @@ class EtchSubmitter:
             mmr_root=p["mmr_root"],
             prev_root=p["prev_root"],
             payload_hash=p["payload_hash"],
+            payload_json=p["payload_json"],
             timestamp=p["timestamp"],
             record_hash=bundle_hash,
         )

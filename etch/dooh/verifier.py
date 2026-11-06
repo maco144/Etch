@@ -5,7 +5,8 @@ Runs the six-step check from docs/dooh-spec.md:
   1. Resolve key_ids against the manifest.
   2. Verify both ed25519 sigs over the canonical body.
   3. Re-compute bundle_hash, confirm it matches etch_proof.record_hash.
-  4. Verify the Etch inclusion proof's internal consistency.
+  4. Verify the Etch inclusion proof: payload_json hashes to payload_hash and
+     names this bundle, and the leaf and root recompute.
   5. Confirm etch_proof.mmr_root matches a trusted chain root (optional).
   6. Confirm etch_proof.timestamp >= played_at.
 
@@ -18,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from etch.chain import InclusionProof, verify_inclusion_proof
+from etch.chain import InclusionProof, verify_inclusion_proof, verify_payload_binding
 
 from .keys import b64url_decode, verify_signature
 from .manifest import IdentityManifest
@@ -91,7 +92,18 @@ def verify_bundle(
     if recomputed != proof.record_hash:
         failed.append(f"bundle_hash mismatch: computed {recomputed[:16]}... vs anchored {proof.record_hash[:16]}...")
 
-    # Step 4 — Etch proof internal consistency
+    # Step 4 — the leaf commits to this bundle, then Etch proof internal consistency.
+    # A missing payload_json fails rather than warns: step 3 compares a field the leaf does not commit
+    # to, so a warning would let anyone re-point a genuine proof at another bundle by dropping it.
+    if proof.payload_json is None:
+        failed.append("etch_proof has no payload_json — proof cannot be tied to this bundle")
+    else:
+        payload = verify_payload_binding(proof.payload_json, proof.payload_hash)
+        if payload is None:
+            failed.append("payload_json does not hash to payload_hash")
+        elif payload.get("record_hash") != recomputed:
+            failed.append("proof anchors a different record: payload_json does not name this bundle_hash")
+
     inclusion = InclusionProof(
         leaf_index=proof.leaf_index,
         leaf_hash=proof.leaf_hash,

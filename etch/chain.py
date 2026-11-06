@@ -74,13 +74,17 @@ def canonical_payload(payload: Dict[str, Any]) -> str:
 
 
 def verify_payload_binding(payload_json: str, payload_hash: str) -> Optional[Dict[str, Any]]:
-    """Return the decoded payload if ``payload_json`` is the preimage of ``payload_hash``, else None.
+    """Return the decoded payload if ``payload_json`` is a JSON object and the preimage of ``payload_hash``, else None.
 
     With this, a proof covers the content itself: the leaf commits to payload_hash, payload_hash to
     payload_json, and payload_json names the content hash (``record_hash`` / ``content_hash``)."""
-    if hashlib.sha256(payload_json.encode()).hexdigest() != payload_hash:
+    try:
+        if hashlib.sha256(payload_json.encode()).hexdigest() != payload_hash:
+            return None
+        payload = json.loads(payload_json)
+    except ValueError:  # proofs arrive from callers: lone surrogates, or a preimage that isn't JSON
         return None
-    return json.loads(payload_json)
+    return payload if isinstance(payload, dict) else None
 
 
 # Published with every record_commit proof. Steps 1-2 bind the content; 3-4 place the leaf in the chain.

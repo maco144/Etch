@@ -31,7 +31,7 @@ A receipt validates if and only if all of the following hold:
 
 1. The receipt body is signed by an ed25519 key the **advertiser** previously associated with a screen (`player_sig`).
 2. The same body is countersigned by an ed25519 key the **advertiser** previously associated with a venue or media owner (`venue_countersig`).
-3. The hash of the signed bundle equals the `record_hash` recorded in the bundle's `etch_proof` block.
+3. The hash of the signed bundle equals the `record_hash` named in `etch_proof.payload_json`, the payload the chain leaf commits to.
 4. The bundle's `etch_proof.mmr_root` matches a chain root the verifier independently trusts (the advertiser's published namespace root, fetched out-of-band).
 5. The Etch chain `timestamp` is at or after `played_at`.
 
@@ -147,7 +147,11 @@ The on-the-wire and on-disk format wraps the canonical receipt body with both si
     "leaf_index": 14823,
     "leaf_hash": "...",
     "mmr_root": "...",
-    "timestamp": 1714247413.123
+    "prev_root": "...",
+    "payload_hash": "...",
+    "payload_json": "{\"external_id\": \"...\", \"namespace\": \"...\", \"record_hash\": \"...\", \"record_type\": \"dooh-receipt\", \"registered_at\": 1714247413.12}",
+    "timestamp": 1714247413.123,
+    "record_hash": "..."
   }
 }
 ```
@@ -185,12 +189,12 @@ A verifier needs three things to verify a receipt offline:
 2. The advertiser's identity manifest (to resolve `key_id` → ed25519 public key).
 3. A trusted `mmr_root` for the advertiser's namespace, fetched out-of-band (e.g. from the advertiser's published feed or pinned at contract time).
 
-The verifier runs six steps. Step 4 is the only one that requires a trusted root; the rest run on the bundle alone.
+The verifier runs five steps. Step 4 is the only one that requires a trusted root; the rest run on the bundle alone.
 
 1. Resolve `player_sig.key_id` and `venue_countersig.key_id` against the manifest. If either is unknown, **fail**.
 2. Verify both ed25519 signatures over the canonical receipt body. If either fails, **fail**.
 3. Recompute `bundle_hash` (SHA-256 over body + both sigs) and confirm it equals `etch_proof.record_hash`. If not, **fail**.
-4. Verify the Etch MMR inclusion proof: leaf hash, path hashes, and `mmr_root` are mutually consistent (`leaf_hash = SHA256(prev_root : 'record_commit' : payload_hash : timestamp)` and `mmr_root = SHA256(prev_root : leaf_hash)`), AND `mmr_root` matches the trusted namespace root from (3) above. If any sub-check fails, **fail**.
+4. Verify the Etch MMR inclusion proof: `payload_hash = SHA256(payload_json)` byte for byte, `payload_json` names the `bundle_hash` from step 3 as its `record_hash`, the leaf hash and `mmr_root` are consistent (`leaf_hash = SHA256(prev_root : 'record_commit' : payload_hash : timestamp)` and `mmr_root = SHA256(prev_root : leaf_hash)`), AND `mmr_root` matches the trusted namespace root from (3) above. If any sub-check fails, **fail**. A proof with no `payload_json` **fails**: `etch_proof.record_hash` is not committed to by the leaf, so without the payload a genuine proof for one receipt could be re-pointed at any other bundle. `GET /v1/dooh/receipts` returns `payload_json` for every anchored bundle.
 5. Confirm `etch_proof.timestamp` is at or after `played_at`. If the clock claim is later than the chain anchor, **fail**.
 
 If the trusted root from (3) is not provided, the verifier still runs steps 1, 2, 3, 5 and the internal-consistency portion of step 4 — but it must surface a warning that the proof has not been bound to a known chain. The SDK's `verify_bundle()` does exactly this: returns `ok=True` with a warning when `trusted_root` is None, but `ok=False` if it is provided and doesn't match.

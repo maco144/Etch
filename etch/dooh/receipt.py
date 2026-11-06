@@ -61,6 +61,9 @@ class EtchProof(BaseModel):
     mmr_root: str
     prev_root: str
     payload_hash: str
+    # Preimage of payload_hash, naming the anchored record_hash. The verifier requires it: record_hash
+    # below is not committed to by the leaf, so on its own it binds nothing.
+    payload_json: Optional[str] = None
     timestamp: float
     record_hash: str  # = bundle_hash; cross-checked by verifier
 
