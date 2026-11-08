@@ -181,7 +181,7 @@ pip install "etch-provenance[mcp]"
 claude mcp add etch-assent -- etch-assent-mcp
 ```
 
-Set `ETCH_ASSENT_BASE_URL` (default `https://assent.to`) to change the link host, or `ETCH_ASSENT_API_URL` to send API calls somewhere else, such as a local server.
+Set `ETCH_ASSENT_BASE_URL` (default `https://assent.to`) to change the link host, or `ETCH_ASSENT_API_URL` to send API calls somewhere else, such as a local server. Request keys and signed PDFs live under `ETCH_ASSENT_HOME` (default `~/.etch/assent`), so `fetch_signed` only works on the machine that sent the request.
 
 ### Glyph — shortcodes, sigils, and the public resolver
 

@@ -73,6 +73,11 @@ result = verify_bundle(bundle, manifest, trusted_root=trusted_root)
 print(result.ok, result.failed_steps)
 ```
 
+`etch_proof.payload_json` is what ties the proof to *this* bundle: it is the preimage of
+`payload_hash` and names the bundle hash as its `record_hash`. A proof without it fails, so
+keep bundles exactly as `submit()` or `GET /v1/dooh/receipts` returned them; bundles saved before
+v0.3.0 can be refreshed from that GET.
+
 ### 3. End-to-end demo (no separate server required)
 
 ```bash
@@ -101,7 +106,7 @@ python examples/dooh_reference_player.py \
 | `receipt.py` | `Receipt`, `SignedBundle`, `EtchProof`, sign/countersign helpers |
 | `manifest.py` | `IdentityManifest` — advertiser-published `key_id → public key` map |
 | `submitter.py` | `EtchSubmitter` — sync httpx client; `submit()` (DOOH endpoint, stores bundle) and `submit_hash_only()` (privacy-preserving) |
-| `verifier.py` | `verify_bundle()` — six-step offline verification |
+| `verifier.py` | `verify_bundle()` — six-step offline verification; requires `etch_proof.payload_json` |
 
 ## HTTP endpoints
 

@@ -30,6 +30,7 @@ It is a **feature of Etch**, not a standalone product, but it is also served at 
 | Anonymous provenance chain | **Shipped** | `etch/assent_api.py` |
 | Public verify page | **Shipped** | `routes/Verify.tsx`, `components/VerifyChain.tsx` |
 | Send-to-sign, E2EE ciphertext store | **Shipped** | `etch/assent_docs_api.py`, `routes/Send.tsx` |
+| Agent sender: MCP server `etch-assent-mcp` (agent asks a human to sign) | **Shipped** v0.3.0 | `etch/assent_agent.py`, `etch/assent_mcp.py` |
 | Capability token gating document replacement | **Shipped** | `assent_docs_api.py` `_check_token` |
 | Multiple signature fields + review/finalize gate | **Shipped** | `routes/Sign.tsx` |
 | Resizable, draggable signature and text fields | **Shipped** | `hooks/useDraggableResizable.ts` |
@@ -118,6 +119,25 @@ server-issued session — would give Etch something to leak. Anyone holding the
 link can already decrypt the document, so gating the write on a token carried
 the same way costs the recipient nothing and stops a passerby who guesses a
 `document_id` from overwriting a document they cannot read.
+
+### V2a — Agent sender (MCP) — *as built*
+
+The V2 flow with an agent in the sender's seat. `pip install "etch-provenance[mcp]"` installs
+`etch-assent-mcp`, a stdio MCP server with three tools:
+
+1. `request_signature` turns plain text into a one-page sign-off PDF (or takes an existing PDF),
+   encrypts it on the agent's machine, uploads the ciphertext, stamps `uploaded` at index 0, and
+   returns the same `sign_url` the browser sender builds. The agent delivers it privately; the key
+   and write token are kept only in a 0600 file under `~/.etch/assent/requests/`.
+2. `signature_status` reads the public chain and reports `sent`, `opened`, `signing` or `finalized`,
+   plus whether the copy the signer opened matches what was sent.
+3. `fetch_signed` downloads the returned ciphertext, decrypts it locally, and saves it only if its
+   SHA-256 equals the `finalized` hash. It recomputes the inclusion proof, including the payload
+   binding, and reports `proof.verified`.
+
+The recipient side is unchanged: the signer gets the normal Sign page. The agent's `verify_url`
+uses the `rec_` id of the `uploaded` (or `finalized`) event. The Verify page also resolves bare
+server-issued document ids, which is what the stamp on a send-to-sign PDF carries.
 
 ### V3 — Accounts + billing — *planned, not started*
 
@@ -291,7 +311,7 @@ yields neither the document nor the right to replace it.
 │       │   ├── Home.tsx              # drop-a-PDF landing
 │       │   ├── Sign.tsx              # signing workflow (place → review → finalize)
 │       │   ├── Send.tsx              # send-to-sign: encrypt, upload, build share link
-│       │   └── Verify.tsx            # /verify/:id page
+│       │   └── Verify.tsx            # /verify/:id page (rec_ id, doc_ id, or server-issued document id)
 │       ├── lib/
 │       │   ├── etch.ts               # /v1/assent/* browser client
 │       │   ├── pdf.ts                # pdf-lib + PDF.js glue

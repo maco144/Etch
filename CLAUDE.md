@@ -58,20 +58,21 @@ ruff check etch/ tests/
 - `ETCH_LOG_LEVEL` — Level for the `etch` loggers (default: `INFO`)
 - `ETCH_ASSENT_DOC_DIR` — Assent ciphertext storage (default: `/var/etch/assent-documents`)
 - `ETCH_ASSENT_IP_SALT` — Salt for hashed client IPs in Assent rate limiting
+- `ETCH_ASSENT_BASE_URL` / `ETCH_ASSENT_API_URL` / `ETCH_ASSENT_HOME` — MCP side only: link host, API host, local key + signed-PDF store
 
 ## Documentation Map
 
 - **README.md** — public front door: full endpoint tables, auth, configuration
-- **CHANGELOG.md** — Keep a Changelog; `v0.2.0` is tagged, everything since is Unreleased
+- **CHANGELOG.md** — Keep a Changelog; `v0.3.0` is the latest release, everything since is Unreleased
 - **PROJECT_INDEX.md** — repo map, module-by-module; read before exploring
 - **docs/ETCH_ASSENT_SPEC.md** — Assent; sections marked *as built* are authoritative,
   *planned* ones may not exist yet
 - **docs/dooh-spec.md** — DOOH protocol; the trust model section is non-negotiable context
 - **etch/dooh/README.md** — DOOH SDK quickstart
 - **assent-app/README.md** — Assent frontend build + architecture
-- **docs/RELEASING.md** — release procedure (PyPI via OIDC)
+- **docs/RELEASING.md** — release procedure (PyPI via OIDC). The PyPI name is `etch-provenance`; `etch` there is an unrelated project. Bump `pyproject.toml` and `etch/__init__.py` together
 
 ## Conventions
 
-- Python 3.11+, ruff line-length 120
+- Python 3.11+, ruff line-length 120. Ruff is pinned exactly in the `dev` extra: new default rules land in minor releases and would turn CI red with no code change, so bump it deliberately and fix what it finds
 - License: Rising Sun License v1.0

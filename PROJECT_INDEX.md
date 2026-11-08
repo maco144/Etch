@@ -1,6 +1,6 @@
 # Project Index: Etch
 
-Generated: 2026-09-08
+Generated: 2026-11-08
 
 ## Project Structure
 
@@ -8,7 +8,7 @@ Generated: 2026-09-08
 etch/
 ├── etch/
 │   ├── __init__.py          # Exports: AuditChain, ChainEntry, InclusionProof, verify_inclusion_proof, EtchClient
-│   ├── chain.py             # Core MMR audit chain (hash chain, proofs, verification)
+│   ├── chain.py             # Core MMR audit chain (hash chain, proofs, payload binding, verification)
 │   ├── chain_manager.py     # Namespace-isolated chain manager (per-tenant chains)
 │   ├── models.py            # SQLAlchemy ORM: ProofRecord, Namespace, ApiKey, RecordEntry
 │   ├── db.py                # Async DB session (PostgreSQL or SQLite fallback)
@@ -18,6 +18,9 @@ etch/
 │   ├── c2pa.py              # FastAPI router: /v1/c2pa/* (C2PA manifest bridge)
 │   ├── assent_api.py        # FastAPI router: /v1/assent/* (anonymous PDF-signer events)
 │   ├── assent_docs_api.py   # FastAPI router: /v1/assent/document/* (E2EE ciphertext blobs for send-to-sign)
+│   ├── assent_agent.py      # Assent sender for agents: text→PDF, local AES-GCM, sign link, status, fetch + proof check
+│   ├── assent_mcp.py        # stdio MCP server `etch-assent-mcp` exposing assent_agent as three tools
+│   ├── backfill_payloads.py # One-off: recover payload_json for rows written before it was stored
 │   ├── dooh_api.py          # FastAPI router: /v1/dooh/* (playback receipts, API key auth)
 │   ├── glyph.py             # Shortcodes (Crockford base32 + checksum) + bar/QR sigil rendering
 │   ├── glyph_api.py         # FastAPI router: /v1/proof/{id}/glyph + public resolver at /g/*
@@ -28,7 +31,7 @@ etch/
 │   │   ├── receipt.py       # Receipt, SignedBundle, EtchProof, sign/countersign
 │   │   ├── manifest.py      # IdentityManifest — advertiser-published key_id → pubkey
 │   │   ├── submitter.py     # EtchSubmitter — sync httpx client (stored + hash-only modes)
-│   │   ├── verifier.py      # verify_bundle() — six-step offline verification
+│   │   ├── verifier.py      # verify_bundle() — six-step offline verification; requires etch_proof.payload_json
 │   │   └── README.md        # SDK quickstart + architecture
 │   ├── watermark/           # etchmark — inaudible audio watermark
 │   │   ├── payload.py       # Bit packing, CRC-12, sync pattern
@@ -52,6 +55,8 @@ etch/
 │   ├── test_records_api.py        # SoR API tests
 │   ├── test_assent_api.py         # Etch Assent public event/chain API tests
 │   ├── test_assent_docs_api.py    # Encrypted document storage API tests (V2)
+│   ├── test_assent_agent.py       # Assent agent/MCP: e2e recipient replay, status, fetch, proof check
+│   ├── test_payload_binding.py    # payload_json stored on every write; backfill recovers it byte for byte
 │   ├── test_dooh.py               # DOOH SDK: unit + integration + e2e
 │   ├── test_glyph.py              # Shortcode encode/decode, checksum, sigil render
 │   ├── test_watermark.py          # Payload framing, sync, spread-spectrum layer
@@ -60,7 +65,7 @@ etch/
 ├── docs/
 │   ├── ETCH_ASSENT_SPEC.md        # Assent product + protocol spec (as-built + planned)
 │   ├── dooh-spec.md               # DOOH playback receipt spec (CC-BY 4.0)
-│   ├── RELEASING.md               # Release procedure (PyPI via OIDC)
+│   ├── RELEASING.md               # Release procedure (PyPI `etch-provenance` via OIDC)
 │   ├── superpowers/specs/         # Design specs for shipped Assent features
 │   ├── superpowers/plans/         # Implementation plans for the same
 │   └── _private/                  # Gitignored — outreach, pipeline, licensing
@@ -76,18 +81,19 @@ etch/
 ├── .github/workflows/
 │   ├── ci.yml              # Test matrix: Python 3.11/3.12/3.13, ruff lint, assent-frontend (tsc + vite build)
 │   └── release.yml         # PyPI publish on git tag v*
-├── pyproject.toml          # Hatch build, deps, pytest/ruff config
+├── pyproject.toml          # Hatch build (dist name etch-provenance), deps, pytest/ruff config
 ├── Dockerfile              # Python 3.12-slim, non-root, port 8100
 ├── docker-compose.yml      # etch (8101) + postgres + nginx
 ├── README.md               # Quick start, full API reference, configuration
-├── CHANGELOG.md            # Keep a Changelog format; v0.2.0 tagged, 32 commits unreleased
+├── CHANGELOG.md            # Keep a Changelog format; v0.3.0 is the latest release
 └── LICENSE.md              # Rising Sun License v1.0
 ```
 
 ## Entry Points
 
 - **Server**: `etch/server.py` — `uvicorn etch.server:app --reload` (port 8100)
-- **Library**: `from etch import AuditChain, verify_inclusion_proof, EtchClient`
+- **Library**: `pip install etch-provenance`, then `from etch import AuditChain, verify_inclusion_proof, EtchClient`
+- **Assent MCP**: `etch-assent-mcp` (stdio; `pip install "etch-provenance[mcp]"`)
 - **Assent frontend**: `cd assent-app && npm run dev` (Vite dev server) or `npm run build` → `site/assent/`
 - **Tests**: `pytest` (asyncio_mode=auto)
 - **Docker**: `docker-compose up` (etch:8101, postgres, nginx:80)
@@ -172,9 +178,12 @@ read-only and registers nothing.
 
 ### chain.py — MMR Audit Chain
 - `AuditChain` — Thread-safe in-memory chain with persist hooks
-- `ChainEntry` — Dataclass: leaf_index, leaf_hash, mmr_root, payload_hash, action_type, timestamps
+- `ChainEntry` — Dataclass: leaf_index, leaf_hash, mmr_root, payload_hash, payload_json, action_type, timestamps
 - `InclusionProof` — Offline-verifiable proof (no server trust needed)
 - `verify_inclusion_proof()` — Standalone verification
+- `canonical_payload()` — The exact serialization `payload_hash` is taken over; never change it
+- `verify_payload_binding()` — `payload_json` → decoded payload if it hashes to `payload_hash`, else None
+- `RECORD_COMMIT_VERIFICATION_STEPS` — The 4 steps returned with every record_commit proof
 - `get_chain()` / `log_event()` — Global singleton + convenience API
 
 ### chain_manager.py — Namespace Chain Manager
@@ -192,6 +201,7 @@ read-only and registers nothing.
 - `Namespace` (etch_namespaces) — Multi-tenant isolation
 - `ApiKey` (etch_api_keys) — Hashed API keys with mode
 - `RecordEntry` (etch_records) — SoR record entries
+- `etch_proofs` and `etch_records` both carry `payload_json`, the preimage of `payload_hash`. New columns go in `db._ADDED_COLUMNS`
 
 ### assent_api.py — Assent Events
 - `assent_router` — Public event stamping + chain reads
@@ -202,6 +212,12 @@ read-only and registers nothing.
 - `assent_docs_router` — Opaque ciphertext upload/download/replace
 - File-backed by default; IO narrowed to `_read`/`_write` for R2 migration
 - Separate per-IP sliding window (10 uploads/hr) — uploads heavier than stamps
+
+### assent_agent.py / assent_mcp.py — Assent for agents
+- `request_signature()` — Text → one-page PDF (or an existing PDF), encrypted locally, uploaded as ciphertext; returns `sign_url` (key + write token in the fragment)
+- `signature_status()` — Reads the public chain: sent / opened / signing / finalized; flags a signer shown different bytes
+- `fetch_signed()` — Downloads, decrypts, saves only if SHA-256 equals the `finalized` hash; `check_proof()` recomputes the inclusion proof
+- `assent_mcp.server` — `MCPServer` with the three tools; `AssentError` is re-raised as `ToolError` so the agent sees the reason
 
 ### glyph.py — Shortcodes + Sigils
 - `encode_shortcode()` / `decode_shortcode()` / `verify_shortcode()` — Crockford base32
@@ -222,7 +238,7 @@ read-only and registers nothing.
 - `Receipt`, `SignedBundle`, `sign_receipt()`, `countersign()` — bilateral signing
 - `IdentityManifest` — advertiser-published `key_id → public key` map; no global PKI
 - `EtchSubmitter` — sync httpx client, stored + hash-only modes
-- `verify_bundle()` — six-step offline verification
+- `verify_bundle()` — six-step offline verification; fails a proof whose `payload_json` is missing or doesn't name the bundle
 - `canonical.py` — RFC 8785 (JCS) for deterministic signing bytes
 
 ### sdk.py — Python SDK
@@ -255,14 +271,16 @@ read-only and registers nothing.
   `server.configure_logging()` gives the `etch` loggers a handler
 - Env: `ETCH_ASSENT_DOC_DIR` (default: `/var/etch/assent-documents`)
 - Env: `ETCH_ASSENT_IP_SALT` (default: `etch-assent`) — salts hashed client IPs
+- Env (MCP side): `ETCH_ASSENT_BASE_URL` (default `https://assent.to`), `ETCH_ASSENT_API_URL` (default: base URL),
+  `ETCH_ASSENT_HOME` (default `~/.etch/assent`; request keys and signed PDFs, 0600)
 
 ## Dependencies
 
 - Core: fastapi >=0.111, uvicorn[standard] >=0.29, sqlalchemy >=2.0, aiosqlite >=0.20, pydantic >=2.5, httpx >=0.27, python-multipart >=0.0.9
 - DOOH: cryptography >=42 (ed25519), rfc8785 >=0.1 (JCS canonicalization)
 - Glyph/watermark: Pillow >=10, numpy >=2.0, soundfile >=0.12; `ffmpeg` on PATH for lossy formats
-- Optional: `[postgres]` asyncpg >=0.29 · `[qr]` qrcode[pil] >=7.4 · `[all]`
-- Dev: pytest, pytest-asyncio, ruff, mypy
+- Optional: `[postgres]` asyncpg >=0.29 · `[qr]` qrcode[pil] >=7.4 · `[mcp]` mcp >=2.3,<3 · `[all]`
+- Dev: pytest, pytest-asyncio, ruff (pinned; new default rules land in minor releases), mypy
 
 ## Production
 
