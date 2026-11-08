@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from . import __version__
 from .api import router as proof_router
 from .assent_api import assent_router, ensure_assent_namespace
 from .assent_docs_api import assent_docs_router
@@ -63,7 +64,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Etch",
     description="System of Record provenance on a tamper-evident Merkle chain",
-    version="0.2.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -79,7 +80,7 @@ app.include_router(watermark_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "etch", "version": "0.2.0"}
+    return {"status": "ok", "service": "etch", "version": __version__}
 
 
 if __name__ == "__main__":

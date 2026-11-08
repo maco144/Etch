@@ -166,7 +166,7 @@ expected next step, and double-encoding would waste headroom. Extract is
 read-only and registers nothing.
 
 ### Other
-- `GET /health` → `{"status":"ok","service":"etch","version":"0.2.0"}`
+- `GET /health` → `{"status":"ok","service":"etch","version":"0.3.0"}`
 
 ## Core Modules
 

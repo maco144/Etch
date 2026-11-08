@@ -9,7 +9,7 @@
    ruff check etch/ tests/
    ```
 
-2. **Version bumped** in `pyproject.toml`:
+2. **Version bumped** in `pyproject.toml` and `etch/__init__.py` (`__version__`, which `/health` reports):
    ```toml
    version = "X.Y.Z"
    ```
@@ -48,13 +48,13 @@ The release workflow is fully automated via GitHub Actions using PyPI trusted pu
 
 1. **Check PyPI** — the package should appear within a few minutes:
    ```
-   https://pypi.org/project/etch/X.Y.Z/
+   https://pypi.org/project/etch-provenance/X.Y.Z/
    ```
 
 2. **Test installation** from PyPI in a clean environment:
    ```bash
    python -m venv /tmp/etch-test && source /tmp/etch-test/bin/activate
-   pip install etch==X.Y.Z
+   pip install etch-provenance==X.Y.Z
    python -c "import etch; print('OK')"
    ```
 
@@ -69,7 +69,7 @@ Before the first release, configure trusted publishing on PyPI:
 
 1. Go to https://pypi.org/manage/account/publishing/
 2. Add a new pending publisher:
-   - PyPI project name: `etch`
+   - PyPI project name: `etch-provenance` (`etch` on PyPI is an unrelated project)
    - Owner: `maco144`
    - Repository: `Etch`
    - Workflow name: `release.yml`

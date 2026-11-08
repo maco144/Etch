@@ -3,7 +3,7 @@
 **Content provenance on a tamper-evident Merkle chain. Register, verify, and prove content existed at a point in time.**
 
 ```bash
-pip install etch
+pip install etch-provenance   # imports as `etch`
 ```
 
 ---
@@ -177,7 +177,7 @@ Product + protocol spec: [`docs/ETCH_ASSENT_SPEC.md`](docs/ETCH_ASSENT_SPEC.md).
 **Assent MCP server: an agent asks a human to sign.** Three tools. `request_signature` takes plain text, which it renders to a one-page sign-off PDF, or a path to an existing PDF. It encrypts the document on the agent's machine, uploads only the ciphertext, stamps the plaintext hash as event 0, and returns a `sign_url` that opens in the normal Assent Sign page. The agent delivers the link itself. The key exists only in that URL and in a 0600 file under `~/.etch/assent/requests/`. `signature_status` reads the public chain and reports one of sent, opened, signing, or finalized. It also flags a signer who was shown different bytes from what was sent. `fetch_signed` downloads the signed copy, decrypts it locally, saves it only if its SHA-256 equals the chain's `finalized` hash, and recomputes the inclusion proof.
 
 ```bash
-pip install "etch[mcp]"
+pip install "etch-provenance[mcp]"
 claude mcp add etch-assent -- etch-assent-mcp
 ```
 
@@ -209,7 +209,7 @@ Embed returns lossless WAV; the spread-spectrum layer survives the artist's own 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/health` | `{"status":"ok","service":"etch","version":"0.2.0"}` |
+| `GET` | `/health` | `{"status":"ok","service":"etch","version":"0.3.0"}` |
 
 ---
 
@@ -269,7 +269,7 @@ async with EtchClient(base_url="http://localhost:8100", api_key="etch_live_sk_â€
 | `ETCH_ASSENT_DOC_DIR` | `/var/etch/assent-documents` | Ciphertext blob storage for Assent send-to-sign |
 | `ETCH_ASSENT_IP_SALT` | `etch-assent` | Salt for hashed client IPs in Assent rate limiting |
 
-Optional extras: `pip install "etch[postgres]"` (asyncpg), `"etch[qr]"` (QR sigils), `"etch[dev]"`, `"etch[all]"`.
+Optional extras: `pip install "etch-provenance[postgres]"` (asyncpg), `"etch-provenance[qr]"` (QR sigils), `"etch-provenance[mcp]"`, `"etch-provenance[dev]"`, `"etch-provenance[all]"`.
 
 ---
 

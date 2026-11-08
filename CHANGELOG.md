@@ -7,13 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Everything below has landed on `main` since the `v0.2.0` tag. `pyproject.toml`
-still reads `0.2.0` — bump it before tagging the next release (see
-[`docs/RELEASING.md`](docs/RELEASING.md)).
+## [0.3.0] — 2026-11-08
 
 ### Added
 
-- **Assent MCP server** (`etch-assent-mcp`, `pip install "etch[mcp]"`). An agent asks a human
+- **Assent MCP server** (`etch-assent-mcp`, `pip install "etch-provenance[mcp]"`). An agent asks a human
   to sign and gets a link back. `request_signature` renders plain text to a sign-off PDF, or
   takes an existing PDF. It encrypts locally in the browser's format (`[IV || CT]`,
   `#key=…&wt=…`), uploads ciphertext, and stamps `uploaded` at index 0. Etch never holds the
@@ -93,6 +91,9 @@ still reads `0.2.0` — bump it before tagging the next release (see
 
 ### Changed
 
+- **Published on PyPI as `etch-provenance`.** `etch` on PyPI is an unrelated project, so
+  `pip install etch` never installed this one, and v0.2.0 never reached PyPI. The import
+  is still `import etch`.
 - A document can now be finalized on text fields alone; a signature field is no
   longer required.
 - The verification stamp shrank from a full-width banner to a corner badge.
@@ -173,5 +174,6 @@ still reads `0.2.0` — bump it before tagging the next release (see
 - CI matrix across Python 3.11/3.12/3.13 with ruff linting, and a release
   workflow publishing to PyPI via OIDC trusted publishing.
 
-[Unreleased]: https://github.com/maco144/Etch/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/maco144/Etch/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/maco144/Etch/releases/tag/v0.3.0
 [0.2.0]: https://github.com/maco144/Etch/releases/tag/v0.2.0
