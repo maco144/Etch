@@ -21,6 +21,7 @@ from .api import router as proof_router
 from .assent_api import assent_router, ensure_assent_namespace
 from .assent_docs_api import assent_docs_router
 from .c2pa import c2pa_router
+from .chain_manager import restore_global_chain
 from .db import create_tables
 from .dooh_api import dooh_router
 from .glyph_api import glyph_router
@@ -56,6 +57,7 @@ configure_logging()
 async def lifespan(app: FastAPI):
     """Create tables + bootstrap public namespaces on startup (dev convenience)."""
     await create_tables()
+    await restore_global_chain()  # before any request appends; raises rather than restart at leaf 0
     await ensure_assent_namespace()
     logger.info("[Etch] Server ready — chain initialized (v1/proof + v1/records + v1/assent)")
     yield

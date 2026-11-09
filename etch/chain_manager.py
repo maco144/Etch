@@ -4,6 +4,12 @@ Namespace-isolated chain manager for the Etch SoR API.
 Each namespace gets its own AuditChain instance. Chains are created lazily
 on first access and cached in memory. On restart, chains are rebuilt from
 the database (the last known root and leaf count are loaded).
+
+The legacy global chain (/v1/proof, /v1/c2pa) is restored the same way by
+``restore_global_chain()``, which the server runs at startup.
+
+A restore that can't reach the database raises instead of starting at genesis:
+a chain that silently restarts at leaf 0 forks from everything already stored.
 """
 from __future__ import annotations
 
@@ -13,8 +19,9 @@ import threading
 from sqlalchemy import select
 
 from .chain import AuditChain
+from .chain import get_chain as get_global_chain
 from .db import get_session
-from .models import RecordEntry
+from .models import ProofRecord, RecordEntry
 
 logger = logging.getLogger(__name__)
 
@@ -42,30 +49,23 @@ class ChainManager:
             if namespace_id in self._chains:
                 return self._chains[namespace_id]
 
-        # Not cached — load from DB outside the lock
+        # Not cached — load from DB outside the lock. A DB error propagates and nothing is cached,
+        # so the request fails and the next one retries; it must never fall back to genesis.
         chain = AuditChain()
-
-        try:
-            async with get_session() as session:
-                # Get the last record for this namespace to restore chain state
-                result = await session.execute(
-                    select(RecordEntry)
-                    .where(RecordEntry.namespace_id == namespace_id)
-                    .order_by(RecordEntry.leaf_index.desc())
-                    .limit(1)
-                )
-                last_record = result.scalar_one_or_none()
-
-                if last_record is not None:
-                    # Restore chain state from the last known record
-                    chain._current_root = last_record.mmr_root
-                    chain._leaf_count = last_record.leaf_index + 1
-                    logger.info(
-                        f"[Etch] Restored chain for {namespace_id}: "
-                        f"depth={chain._leaf_count}, root={last_record.mmr_root[:12]}..."
-                    )
-        except Exception as exc:
-            logger.warning(f"[Etch] Failed to restore chain for {namespace_id}: {exc}")
+        async with get_session() as session:
+            result = await session.execute(
+                select(RecordEntry)
+                .where(RecordEntry.namespace_id == namespace_id)
+                .order_by(RecordEntry.leaf_index.desc())
+                .limit(1)
+            )
+            last_record = result.scalar_one_or_none()
+        if last_record is not None:
+            chain.restore(last_record.leaf_index + 1, last_record.mmr_root)
+            logger.info(
+                f"[Etch] Restored chain for {namespace_id}: "
+                f"depth={last_record.leaf_index + 1}, root={last_record.mmr_root[:12]}..."
+            )
 
         with self._lock:
             # Double-check: another request may have created it while we were loading
@@ -92,3 +92,18 @@ def get_chain_manager() -> ChainManager:
     if _manager is None:
         _manager = ChainManager()
     return _manager
+
+
+async def restore_global_chain() -> AuditChain:
+    """Load the legacy global chain's depth and root from the last ``etch_proofs`` row.
+
+    Run once at startup, before any request can append. Raises if the database can't be read."""
+    chain = get_global_chain()
+    async with get_session() as session:
+        last = (await session.execute(
+            select(ProofRecord).order_by(ProofRecord.leaf_index.desc()).limit(1)
+        )).scalar_one_or_none()
+    if last is not None:
+        chain.restore(last.leaf_index + 1, last.mmr_root)
+        logger.info(f"[Etch] Restored global chain: depth={last.leaf_index + 1}, root={last.mmr_root[:12]}...")
+    return chain

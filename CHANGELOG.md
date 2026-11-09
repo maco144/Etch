@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The legacy chain survives a restart.** The global chain behind `/v1/proof` and `/v1/c2pa` lived
+  only in memory, so after every restart the next write got leaf 0 again. It collided with the stored
+  leaf, failed to persist, and still returned a receipt. The server now restores it from `etch_proofs`
+  at startup and refuses to start if it can't. Namespaced chains now also fail a request instead of
+  falling back to genesis when the database can't be read. `GET /v1/c2pa/manifest/{id}` rebuilds the
+  inclusion proof from stored rows instead of returning an empty one after a restart.
+
 ## [0.3.0] — 2026-11-08
 
 ### Added

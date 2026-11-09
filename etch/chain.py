@@ -134,6 +134,18 @@ class AuditChain:
         self._current_root: str = "0" * 64  # Genesis root (64 zero hex chars)
         self._persist_hook = None
         self._entries: list = []   # in-memory list for proof generation
+        self._base: int = 0        # leaf_index of _entries[0]; nonzero after restore()
+
+    def restore(self, leaf_count: int, root: str) -> None:
+        """Continue a persisted chain: the next append gets ``leaf_count`` and chains from ``root``.
+
+        Only on a fresh chain. Leaves before the restore aren't held in memory, so ``generate_proof``
+        returns None for them; callers rebuild those proofs from storage."""
+        with self._lock:
+            if self._leaf_count or self._entries:
+                raise RuntimeError("restore() on a chain that already has leaves")
+            self._leaf_count = self._base = leaf_count
+            self._current_root = root
 
     def set_persist_hook(self, hook) -> None:
         """Register a coroutine function hook(entry: ChainEntry) for persistence."""
@@ -208,9 +220,10 @@ class AuditChain:
         The proof can be verified offline with verify_inclusion_proof().
         """
         with self._lock:
-            if leaf_index < 0 or leaf_index >= len(self._entries):
+            i = leaf_index - self._base
+            if i < 0 or i >= len(self._entries):
                 return None
-            entry, prev_root = self._entries[leaf_index]
+            entry, prev_root = self._entries[i]
         return InclusionProof(
             leaf_index=entry.leaf_index,
             leaf_hash=entry.leaf_hash,

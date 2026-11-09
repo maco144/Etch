@@ -34,7 +34,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from .chain import get_chain, log_event
+from .chain import InclusionProof, get_chain, log_event
 from .db import get_session
 from .models import ProofRecord
 
@@ -248,6 +248,26 @@ async def register_manifest(body: C2PAManifestRequest) -> C2PAManifestReceipt:
     )
 
 
+async def _stored_proof(record: ProofRecord) -> InclusionProof | None:
+    """Rebuild a leaf's inclusion proof from etch_proofs: prev_root is the previous leaf's mmr_root."""
+    if record.created_at_exact is None:
+        return None  # leaf_hash commits to the exact float timestamp; without it the proof can't recompute
+    prev_root = "0" * 64
+    if record.leaf_index > 0:
+        async with get_session() as session:
+            prev = (await session.execute(
+                select(ProofRecord.mmr_root).where(ProofRecord.leaf_index == record.leaf_index - 1)
+            )).scalar_one_or_none()
+        if prev is None:
+            return None
+        prev_root = prev
+    return InclusionProof(
+        leaf_index=record.leaf_index, leaf_hash=record.leaf_hash, mmr_root=record.mmr_root,
+        prev_root=prev_root, action_type=record.action_type, payload_hash=record.payload_hash,
+        timestamp=record.created_at_exact,
+    )
+
+
 @c2pa_router.get("/manifest/{claim_id}", summary="Retrieve a C2PA manifest with Etch proof")
 async def get_manifest(claim_id: int) -> dict:
     """
@@ -275,9 +295,10 @@ async def get_manifest(claim_id: int) -> dict:
     # Parse stored manifest
     manifest = json.loads(record.proof_json) if record.proof_json else {}
 
-    # Generate fresh inclusion proof
+    # Inclusion proof: from memory if this process appended the leaf, else rebuilt from the stored rows
+    # (every leaf written before the last restart).
     chain = get_chain()
-    proof = chain.generate_proof(record.leaf_index)
+    proof = chain.generate_proof(record.leaf_index) or await _stored_proof(record)
     proof_dict = proof.to_dict() if proof else {}
 
     ts = record.created_at_exact if record.created_at_exact is not None else (
